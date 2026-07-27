@@ -144,7 +144,7 @@ def handle_post(event, api_key):
         value = Decimal(str(body.get('value', 0)))
         note = body.get('note', '')
         protein = Decimal(str(body.get('protein', 0))) if data_type == 'FOOD' else 0
-        custom_time = body.get('time') # HH:MM
+        custom_time = body.get('time') # Can be HH:MM or HH:MM:SS
         custom_date = body.get('date') # YYYY-MM-DD
         
         now = datetime.now()
@@ -152,8 +152,8 @@ def handle_post(event, api_key):
         
         # Determine the time suffix
         if custom_time:
-            # Ensure it's formatted as HH:MM:SS to match automatic logs
-            time_str = f"{custom_time}:00"
+            # Ensure it's formatted as HH:MM:SS (add :00 if only HH:MM provided)
+            time_str = custom_time if custom_time.count(':') == 2 else f"{custom_time}:00"
         else:
             time_str = now.strftime('%H:%M:%S')
 

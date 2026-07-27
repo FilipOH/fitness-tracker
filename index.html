@@ -694,6 +694,8 @@
                 pro = document.getElementById('foodPro').value; 
                 note = document.getElementById('foodNote').value; 
                 customTime = document.getElementById('foodTime').value;
+                // Convert HH:MM to HH:MM:SS for consistency with backend
+                if (customTime) customTime = customTime + ':00';
             }
             else if (type === 'GYM') { val = 1; note = document.getElementById('gymNote').value; }
             else if (type === 'WEIGHT') { val = document.getElementById('weightVal').value; }
