@@ -188,6 +188,8 @@
     <!-- Tab 2: Dashboard -->
     <div id="dashTab" class="tab-content">
         <h1 style="font-size: 1.4em; color: var(--accent);">Dashboard</h1>
+        
+        <h2 style="font-size: 1.1em; color: var(--sub); margin: 10px 0 10px;">Today's Progress</h2>
         <div class="grid">
             <div class="card stat"><h2>In</h2><p id="d-in">--</p></div>
             <div class="card stat"><h2>Out</h2><p id="d-out">--</p></div>
@@ -196,33 +198,29 @@
             <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
         </div>
         
-        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Today's Progress</h2>
-        <div class="grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
-                <div>
-                    <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h3>
-                    <p id="d-pro-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
-                </div>
-                <div id="protein-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
-                    <span id="protein-indicator" style="font-size: 1em;">--</span>
-                </div>
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
+            <div>
+                <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h3>
+                <p id="d-pro-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
             </div>
-            <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
-                <div>
-                    <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Sleep Score</h3>
-                    <p id="d-sleep-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
-                </div>
-                <div id="sleep-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
-                    <span id="sleep-indicator" style="font-size: 1em;">--</span>
-                </div>
+            <div id="protein-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
+                <span id="protein-indicator" style="font-size: 1em;">--</span>
             </div>
         </div>
 
+        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Overall Progress</h2>
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
+            <div>
+                <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Avg Sleep Score</h3>
+                <p id="d-sleep-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
+            </div>
+            <div id="sleep-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
+                <span id="sleep-indicator" style="font-size: 1em;">--</span>
+            </div>
+        </div>
+        
         <div class="card" style="text-align:center;"><p style="font-size:0.7em; color:var(--sub);">EST. TOTAL LOSS</p><p id="d-loss" style="font-size:1.5em; font-weight:bold; color:var(--accent);">-- kg</p></div>
         <div class="card" style="padding:5px;"><table><thead><tr><th>Week</th><th>Net</th><th>Goal</th><th>Gym</th></tr></thead><tbody id="weeklyTable"></tbody></table></div>
-        <div class="card" style="padding:10px; text-align:center;">
-            <button onclick="exportCSV()" style="background:var(--accent); border:none; color:white; padding:12px 20px; border-radius:8px; font-size:0.9em; font-weight:bold; width:100%;"><i class="fas fa-download"></i> Export All Data (CSV)</button>
-        </div>
         <div class="chart-container"><canvas id="weightChart"></canvas></div>
     </div>
 
@@ -248,6 +246,10 @@
     <!-- Tab 4: Raw -->
     <div id="rawTab" class="tab-content">
         <h1 style="font-size: 1.4em; color: var(--accent);">History</h1>
+        
+        <div class="card" style="padding:10px; text-align:center; margin-bottom: 15px;">
+            <button onclick="exportCSV()" style="background:var(--accent); border:none; color:white; padding:12px 20px; border-radius:8px; font-size:0.9em; font-weight:bold; width:100%;"><i class="fas fa-download"></i> Export All Data (CSV)</button>
+        </div>
         
         <div style="display: flex; background: #222; border-radius: 8px; margin-bottom: 15px; padding: 4px;">
             <button id="btnDaily" onclick="switchRawView('daily')" style="flex:1; background:var(--accent); color:white; border:none; padding:8px; border-radius:6px; font-size:0.8em; font-weight:bold; transition:0.3s;">Daily Summary</button>
