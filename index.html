@@ -338,7 +338,11 @@
                         document.getElementById('g-gym').value = goals.gym;
                     }
                 }
-            } catch (e) { console.log("Using default goals", e); }
+                hideLoading();
+            } catch (e) { 
+                hideLoading();
+                console.log("Using default goals", e); 
+            }
         }
 
         async function saveGoals() {
