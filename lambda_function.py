@@ -108,6 +108,7 @@ def handle_config_post(event, api_key):
             'SK': 'GOALS',
             'Goals': {
                 'weeklyNet': Decimal(str(body['goals']['weeklyNet'])),
+                'weeklyComparison': body['goals'].get('weeklyComparison', 'less'),
                 'protein': Decimal(str(body['goals']['protein'])),
                 'sleep': Decimal(str(body['goals']['sleep'])),
                 'gym': Decimal(str(body['goals']['gym']))

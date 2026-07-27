@@ -195,24 +195,26 @@
             <div class="card stat"><h2>Out</h2><p id="d-out">--</p></div>
             <div class="card stat"><h2>Net</h2><p id="d-net">--</p></div>
             <div class="card stat"><h2>Weight</h2><p id="d-w">--</p></div>
-            <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
         </div>
         
-        <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
-            <div>
-                <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h3>
-                <p id="d-pro-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
+                <div>
+                    <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h3>
+                    <p id="d-pro-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
+                </div>
+                <div id="protein-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
+                    <span id="protein-indicator" style="font-size: 1em;">--</span>
+                </div>
             </div>
-            <div id="protein-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
-                <span id="protein-indicator" style="font-size: 1em;">--</span>
-            </div>
+            <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
         </div>
 
         <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Overall Progress</h2>
         <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
             <div>
                 <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Avg Sleep Score</h3>
-                <p id="d-sleep-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
+                <p id="d-sleep-avg" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
             </div>
             <div id="sleep-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
                 <span id="sleep-indicator" style="font-size: 1em;">--</span>
@@ -278,7 +280,14 @@
     <div id="goalsTab" class="tab-content">
         <h1 style="font-size: 1.4em; color: var(--accent);">Set Goals</h1>
         <div class="card">
-            <div class="form-row"><label>Weekly Calorie Deficit (e.g. 3850)</label><input type="number" id="g-weekly-net"></div>
+            <div class="form-row"><label>Weekly Net Calorie Goal (e.g. -3850 or +500)</label><input type="number" id="g-weekly-net"></div>
+            <div class="form-row">
+                <label>Weekly Net Goal Type</label>
+                <select id="g-weekly-comparison" style="width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white;">
+                    <option value="less">Less Than (deficit/cutting)</option>
+                    <option value="greater">Greater Than (surplus/bulking)</option>
+                </select>
+            </div>
             <div class="form-row"><label>Daily Protein Goal (g)</label><input type="number" id="g-protein"></div>
             <div class="form-row"><label>Daily Sleep Score Goal (0-100)</label><input type="number" id="g-sleep"></div>
             <div class="form-row"><label>Weekly Gym Target (sessions)</label><input type="number" id="g-gym"></div>
@@ -303,7 +312,7 @@
         const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
         let meals = [];
         let chartInstance = null;
-        let goals = { weeklyNet: 3850, protein: 80, sleep: 75, gym: 2 };
+        let goals = { weeklyNet: -3850, weeklyComparison: 'less', protein: 80, sleep: 75, gym: 2 };
         let allRawItems = [];
         let logPage = 1;
         const logPageSize = 25;
@@ -338,6 +347,7 @@
                     if (data.goals) {
                         goals = data.goals;
                         document.getElementById('g-weekly-net').value = goals.weeklyNet;
+                        document.getElementById('g-weekly-comparison').value = goals.weeklyComparison || 'less';
                         document.getElementById('g-protein').value = goals.protein;
                         document.getElementById('g-sleep').value = goals.sleep;
                         document.getElementById('g-gym').value = goals.gym;
@@ -351,21 +361,29 @@
         }
 
         async function saveGoals() {
-            const newGoals = {
-                weeklyNet: parseFloat(document.getElementById('g-weekly-net').value),
-                protein: parseFloat(document.getElementById('g-protein').value),
-                sleep: parseFloat(document.getElementById('g-sleep').value),
-                gym: parseFloat(document.getElementById('g-gym').value)
-            };
-            const res = await fetch(`${API_BASE}/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                body: JSON.stringify({ goals: newGoals })
-            });
-            if (res.ok) {
-                showToast('Goals Updated');
-                goals = newGoals;
-                loadDashboard();
+            try {
+                const newGoals = {
+                    weeklyNet: parseFloat(document.getElementById('g-weekly-net').value),
+                    weeklyComparison: document.getElementById('g-weekly-comparison').value,
+                    protein: parseFloat(document.getElementById('g-protein').value),
+                    sleep: parseFloat(document.getElementById('g-sleep').value),
+                    gym: parseFloat(document.getElementById('g-gym').value)
+                };
+                const res = await fetch(`${API_BASE}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                    body: JSON.stringify({ goals: newGoals })
+                });
+                if (res.ok) {
+                    showToast('Goals Updated', 'check');
+                    goals = newGoals;
+                    loadDashboard();
+                } else {
+                    showToast('Failed to save goals', 'exclamation-triangle');
+                }
+            } catch (e) {
+                showToast('Error saving goals', 'exclamation-triangle');
+                console.error(e);
             }
         }
 
@@ -808,14 +826,17 @@
                 proGaugeEl.style.borderColor = '#333';
             }
             
-            // Today's Sleep Gauge (Score 0-100)
-            const sleepToday = t.sleep > 0 ? t.sleep.toFixed(0) : "--";
-            document.getElementById('d-sleep-today').innerText = sleepToday;
+            // Average Sleep Gauge (Score 0-100)
+            const sleepDays = Object.values(dayRollup).filter(d => d.sleep > 0);
+            const avgSleep = sleepDays.length > 0 
+                ? (sleepDays.reduce((sum, d) => sum + d.sleep, 0) / sleepDays.length).toFixed(0)
+                : "--";
+            document.getElementById('d-sleep-avg').innerText = avgSleep;
             const sleepIndicatorEl = document.getElementById('sleep-indicator');
             const sleepGaugeEl = document.getElementById('sleep-gauge');
             
-            if (sleepToday !== "--") {
-                const score = parseFloat(sleepToday);
+            if (avgSleep !== "--") {
+                const score = parseFloat(avgSleep);
                 const isGood = score >= goals.sleep;
                 sleepIndicatorEl.innerHTML = isGood ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
                 sleepGaugeEl.style.borderColor = isGood ? 'var(--green)' : 'var(--red)';
@@ -847,13 +868,19 @@
                 return;
             }
             weeks.forEach(w => {
-                const goalMet = weeklyData[w].net <= -goals.weeklyNet;
+                const weekNet = weeklyData[w].net;
+                let goalMet = false;
+                if (goals.weeklyComparison === 'less') {
+                    goalMet = weekNet <= goals.weeklyNet;
+                } else {
+                    goalMet = weekNet >= goals.weeklyNet;
+                }
                 const gymMet = weeklyData[w].gym >= goals.gym;
                 
                 const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
                 const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
                 
-                weeklyTable.innerHTML += `<tr><td>${w.slice(5)}</td><td>${weeklyData[w].net.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
+                weeklyTable.innerHTML += `<tr><td>${w.slice(5)}</td><td>${weekNet.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
             });
             const weights = items.filter(i => i.Type === 'WEIGHT').sort((a,b) => a.PK.localeCompare(b.PK));
             
