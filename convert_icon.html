@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Icon Converter</title>
+    <style>
+        body { margin: 0; padding: 0; background: white; }
+        #container { width: 180px; height: 180px; margin: 0; padding: 0; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <svg width="180" height="180" viewBox="0 0 200 200" role="img" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="bg3" x1="0" y1="200" x2="200" y2="0" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#0a0a0a"/>
+                    <stop offset="1" stop-color="#142e22"/>
+                </linearGradient>
+                <clipPath id="roundClip">
+                    <rect x="0" y="0" width="200" height="200" rx="44"/>
+                </clipPath>
+            </defs>
+            <rect x="0" y="0" width="200" height="200" rx="44" fill="url(#bg3)"/>
+            <g clip-path="url(#roundClip)" stroke="#ffffff" opacity="0.05">
+                <line x1="25" y1="0" x2="25" y2="200" stroke-width="1"/>
+                <line x1="50" y1="0" x2="50" y2="200" stroke-width="1"/>
+                <line x1="75" y1="0" x2="75" y2="200" stroke-width="1"/>
+                <line x1="100" y1="0" x2="100" y2="200" stroke-width="1"/>
+                <line x1="125" y1="0" x2="125" y2="200" stroke-width="1"/>
+                <line x1="150" y1="0" x2="150" y2="200" stroke-width="1"/>
+                <line x1="175" y1="0" x2="175" y2="200" stroke-width="1"/>
+                <line x1="0" y1="25" x2="200" y2="25" stroke-width="1"/>
+                <line x1="0" y1="50" x2="200" y2="50" stroke-width="1"/>
+                <line x1="0" y1="75" x2="200" y2="75" stroke-width="1"/>
+                <line x1="0" y1="100" x2="200" y2="100" stroke-width="1"/>
+                <line x1="0" y1="125" x2="200" y2="125" stroke-width="1"/>
+                <line x1="0" y1="150" x2="200" y2="150" stroke-width="1"/>
+                <line x1="0" y1="175" x2="200" y2="175" stroke-width="1"/>
+            </g>
+            <path d="M40,140 L68,140 L80,108 L92,152 L108,118 L124,90 L132.14,78.23 L140.71,66.67 L150,55" fill="none" stroke="#34d399" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" opacity="0.13"/>
+            <path d="M40,140 L68,140 L80,108 L92,152 L108,118 L124,90 L132.14,78.23 L140.71,66.67 L150,55" fill="none" stroke="#34d399" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="40" cy="140" r="5" fill="#34d399" opacity="0.7"/>
+            <circle cx="150" cy="55" r="13" fill="none" stroke="#fbbf24" stroke-width="2" opacity="0.35"/>
+            <circle cx="150" cy="55" r="7" fill="#fbbf24"/>
+        </svg>
+    </div>
+</body>
+</html>
