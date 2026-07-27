@@ -7,6 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Progress">
+    <link rel="apple-touch-icon" href="app-icon2.svg">
     <link rel="manifest" href="manifest.json">
     <title>Personal Progress</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -47,19 +48,24 @@
         .nav-item.active { color: var(--accent); }
         h1, h2 { margin-bottom: 10px; }
         .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-        .card { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; }
+        .card { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; box-sizing: border-box; }
         .card.stat { text-align: center; }
         .card.stat h2 { margin: 0; font-size: 0.7em; color: var(--sub); text-transform: uppercase; }
         .card.stat p { margin: 5px 0 0; font-size: 1.1em; font-weight: bold; }
         .form-row { display: flex; flex-direction: column; margin-bottom: 15px; }
         label { font-size: 0.9em; color: var(--sub); margin-bottom: 5px; }
-        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 1em; }
+        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 1em; width: 100%; box-sizing: border-box; }
         button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
         th { text-align: left; color: var(--sub); padding: 8px; border-bottom: 1px solid #333; }
         td { padding: 8px; border-bottom: 1px solid #222; }
-        .ing-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 5px; margin-bottom: 5px; }
-        .ing-row input { padding: 8px; font-size: 0.9em; }
+        .ing-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 5px; margin-bottom: 5px; width: 100%; box-sizing: border-box; }
+        .ing-row input { padding: 10px; font-size: 0.9em; border-radius: 8px; width: 100%; box-sizing: border-box; }
+        @media (max-width: 480px) {
+            .ing-row { grid-template-columns: 1fr 1fr; }
+            .ing-row input:first-child { grid-column: span 2; }
+            #mealSearchInput { font-size: 16px; padding: 15px !important; width: 100%; box-sizing: border-box; } /* Better touch target & no zoom */
+        }
         .chart-container { background: var(--card); padding: 10px; border-radius: 12px; height: 200px; }
         
         /* Toast Notification Styling */
@@ -198,13 +204,11 @@
         </div>
         
         <div class="grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
-                <div>
-                    <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h3>
-                    <p id="d-pro-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
-                </div>
-                <div id="protein-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
-                    <span id="protein-indicator" style="font-size: 1em;">--</span>
+            <div class="card stat" style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; min-height: 80px;">
+                <h2 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h2>
+                <p id="d-pro-today" style="margin:5px 0; font-size:1.3em; font-weight:bold;">--</p>
+                <div id="protein-gauge" style="position: absolute; right: 10px; top: 10px; width: 30px; height: 30px; border-radius: 50%; border: 3px solid #333; display: flex; align-items: center; justify-content: center;">
+                    <span id="protein-indicator" style="font-size: 0.7em;">--</span>
                 </div>
             </div>
             <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
@@ -265,13 +269,13 @@
         </div>
 
         <div id="logsView" style="display:none;">
-            <div class="card" style="padding:5px; overflow-x:auto;">
-                <table style="min-width:500px;"><thead><tr><th>Date/Time</th><th>Type</th><th>Cals</th><th>Prot</th><th>Note</th><th style="width:40px;"></th></tr></thead><tbody id="logsTable"></tbody></table>
-            </div>
-            <div style="display:flex; justify-content:center; gap:20px; margin-top:10px;">
+            <div style="display:flex; justify-content:center; gap:20px; margin-bottom:10px;">
                 <button id="btnPrevPage" onclick="changeLogsPage(-1)" style="background:#334; color:white; border:none; padding:8px 15px; border-radius:5px;">Prev</button>
                 <span id="logPageIndicator" style="align-self:center; color:var(--sub); font-size:0.9em;">Page 1</span>
                 <button onclick="changeLogsPage(1)" style="background:#334; color:white; border:none; padding:8px 15px; border-radius:5px;">Next</button>
+            </div>
+            <div class="card" style="padding:5px; overflow-x:auto;">
+                <table style="min-width:500px;"><thead><tr><th>Date/Time</th><th>Type</th><th>Cals</th><th>Prot</th><th>Note</th><th style="width:40px;"></th></tr></thead><tbody id="logsTable"></tbody></table>
             </div>
         </div>
     </div>
@@ -528,16 +532,24 @@
             const start = (logPage - 1) * logPageSize;
             const end = start + logPageSize;
             // Sort by Date then SK (time) descending
-            const sorted = [...allRawItems].sort((a,b) => (b.PK + b.SK).localeCompare(a.PK + a.SK));
+            const sorted = [...allRawItems].sort((a,b) => {
+                const pkA = a.PK || '';
+                const pkB = b.PK || '';
+                const skA = a.SK || '';
+                const skB = b.SK || '';
+                return (pkB + skB).localeCompare(pkA + skA);
+            });
             const pageItems = sorted.slice(start, end);
             
             const tbody = document.getElementById('logsTable');
             tbody.innerHTML = '';
             pageItems.forEach(i => {
-                const time = i.SK.includes('#') ? i.SK.split('#')[1] : i.SK;
-                const displayVal = i.Type === 'GYM' ? '✓' : i.Value.toFixed(0);
+                const sk = i.SK || '';
+                const time = sk.includes('#') ? sk.split('#')[1] : sk;
+                const value = i.Value || 0;
+                const displayVal = i.Type === 'GYM' ? '✓' : value.toFixed(0);
                 const displayPro = i.Type === 'FOOD' ? (i.Protein || 0).toFixed(0) : '-';
-                const deleteBtn = i.SK.includes('DAILY') ? '' : `<button onclick="deleteLogEntry('${i.PK}','${i.SK}')" style="background:none; border:none; color:#ff4444; cursor:pointer; font-size:1.1em;"><i class="fas fa-trash"></i></button>`;
+                const deleteBtn = sk.includes('DAILY') ? '' : `<button onclick="deleteLogEntry('${i.PK}','${i.SK}')" style="background:none; border:none; color:#ff4444; cursor:pointer; font-size:1.1em;"><i class="fas fa-trash"></i></button>`;
                 tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${i.Note || ''}</td><td>${deleteBtn}</td></tr>`;
             });
             document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
@@ -795,7 +807,7 @@
                 const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
                 if (!res.ok) throw new Error('Failed to load data');
                 const data = await res.json();
-                const items = data.items;
+                const items = data.items.filter(i => i.PK !== 'CONFIG');
                 allRawItems = items; // Store for logs view
                 const baseline = data.baseline;
             const today = new Date().toISOString().split('T')[0];
@@ -881,7 +893,7 @@
                     const mondayStr = monday.toISOString().split('T')[0];
                     
                     if (!weeklyData[mondayStr]) weeklyData[mondayStr] = { net: 0, gym: 0 };
-                    weeklyData[mondayStr].net += dayRollup[d].net; 
+                    weeklyData[mondayStr].net += dayRollup[d].net;
                     weeklyData[mondayStr].gym += dayRollup[d].gym;
                 } catch (e) {
                     console.error(`Error processing date ${d}:`, e);
