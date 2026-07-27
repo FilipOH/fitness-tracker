@@ -1,0 +1,8 @@
+.aws-sam/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.xlsx
+Happycow314!.json
+samconfig.toml
