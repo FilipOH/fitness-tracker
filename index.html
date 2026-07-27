@@ -799,7 +799,7 @@
                 allRawItems = items; // Store for logs view
                 const baseline = data.baseline;
             const today = new Date().toISOString().split('T')[0];
-            const uniqueDays = [...new Set(items.map(i => i.PK))].sort().reverse();
+            const uniqueDays = [...new Set(items.map(i => i.PK))].filter(d => d !== 'CONFIG').sort().reverse();
             const dayRollup = {};
             uniqueDays.forEach(d => {
                 let dIn = 0, dOut = baseline, dPro = 0, dW = "--", dGym = 0, dSleep = 0;
@@ -862,9 +862,30 @@
             
             const weeklyData = {};
             uniqueDays.forEach(d => {
-                const date = new Date(d); const monday = new Date(date.setDate(date.getDate() - (date.getDay() || 7) + 1)).toISOString().split('T')[0];
-                if (!weeklyData[monday]) weeklyData[monday] = { net: 0, gym: 0 };
-                weeklyData[monday].net += dayRollup[d].net; weeklyData[monday].gym += dayRollup[d].gym;
+                try {
+                    // Use UTC to avoid any timezone issues
+                    const date = new Date(d + 'T12:00:00Z'); // Add time to ensure UTC interpretation
+                    
+                    if (isNaN(date.getTime())) {
+                        console.error(`Invalid date: ${d}`);
+                        return;
+                    }
+                    
+                    // Calculate Monday of this week (0=Sunday, 1=Monday, ..., 6=Saturday)
+                    const dayOfWeek = date.getUTCDay();
+                    const daysToMonday = (dayOfWeek === 0) ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days, else go back (dayOfWeek - 1)
+                    
+                    // Create Monday's date by going back the appropriate number of days
+                    const mondayTime = date.getTime() - (daysToMonday * 24 * 60 * 60 * 1000);
+                    const monday = new Date(mondayTime);
+                    const mondayStr = monday.toISOString().split('T')[0];
+                    
+                    if (!weeklyData[mondayStr]) weeklyData[mondayStr] = { net: 0, gym: 0 };
+                    weeklyData[mondayStr].net += dayRollup[d].net; 
+                    weeklyData[mondayStr].gym += dayRollup[d].gym;
+                } catch (e) {
+                    console.error(`Error processing date ${d}:`, e);
+                }
             });
             const weeklyTable = document.getElementById('weeklyTable'); 
             weeklyTable.innerHTML = '';
