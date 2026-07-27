@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#00adb5">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Progress">
+    <link rel="manifest" href="manifest.json">
     <title>Personal Progress</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
@@ -131,6 +136,8 @@
                     <select id="mealSelect" style="width: 100%;">
                         <option value="">Select a meal...</option>
                     </select>
+                    <label style="margin-top:10px;">Portions</label>
+                    <input type="number" id="mealPortions" placeholder="1.0" step="0.1" min="0.1" value="1">
                 </div>
                 <div id="manualFoodFields">
                     <div class="form-row">
@@ -185,24 +192,37 @@
             <div class="card stat"><h2>In</h2><p id="d-in">--</p></div>
             <div class="card stat"><h2>Out</h2><p id="d-out">--</p></div>
             <div class="card stat"><h2>Net</h2><p id="d-net">--</p></div>
-            <div class="card stat"><h2>Protein</h2><p id="d-pro">--</p></div>
             <div class="card stat"><h2>Weight</h2><p id="d-w">--</p></div>
             <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
         </div>
         
-        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Overall</h2>
-        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <h3 style="margin:0; font-size:0.8em; color:var(--sub); text-transform: uppercase;">Avg Sleep Score</h3>
-                <p id="d-avg-sleep" style="margin:5px 0 0; font-size:1.5em; font-weight:bold;">--</p>
+        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Today's Progress</h2>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
+                <div>
+                    <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Protein</h3>
+                    <p id="d-pro-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
+                </div>
+                <div id="protein-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
+                    <span id="protein-indicator" style="font-size: 1em;">--</span>
+                </div>
             </div>
-            <div id="sleep-gauge" style="width: 50px; height: 50px; border-radius: 50%; border: 5px solid #333; display: flex; align-items: center; justify-content: center;">
-                <span id="sleep-indicator" style="font-size: 1.2em;">--</span>
+            <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
+                <div>
+                    <h3 style="margin:0; font-size:0.7em; color:var(--sub); text-transform: uppercase;">Sleep Score</h3>
+                    <p id="d-sleep-today" style="margin:5px 0 0; font-size:1.3em; font-weight:bold;">--</p>
+                </div>
+                <div id="sleep-gauge" style="width: 45px; height: 45px; border-radius: 50%; border: 4px solid #333; display: flex; align-items: center; justify-content: center;">
+                    <span id="sleep-indicator" style="font-size: 1em;">--</span>
+                </div>
             </div>
         </div>
 
         <div class="card" style="text-align:center;"><p style="font-size:0.7em; color:var(--sub);">EST. TOTAL LOSS</p><p id="d-loss" style="font-size:1.5em; font-weight:bold; color:var(--accent);">-- kg</p></div>
         <div class="card" style="padding:5px;"><table><thead><tr><th>Week</th><th>Net</th><th>Goal</th><th>Gym</th></tr></thead><tbody id="weeklyTable"></tbody></table></div>
+        <div class="card" style="padding:10px; text-align:center;">
+            <button onclick="exportCSV()" style="background:var(--accent); border:none; color:white; padding:12px 20px; border-radius:8px; font-size:0.9em; font-weight:bold; width:100%;"><i class="fas fa-download"></i> Export All Data (CSV)</button>
+        </div>
         <div class="chart-container"><canvas id="weightChart"></canvas></div>
     </div>
 
@@ -340,6 +360,35 @@
             }
         }
 
+        function exportCSV() {
+            if (!allRawItems || allRawItems.length === 0) {
+                showToast('No data to export', 'exclamation-triangle');
+                return;
+            }
+            
+            // Create CSV content
+            let csv = 'Date,Time,Type,Value,Protein,Note\n';
+            allRawItems.forEach(item => {
+                const time = item.SK.includes('#') ? item.SK.split('#')[1] : item.SK;
+                const protein = item.Protein || 0;
+                const note = (item.Note || '').replace(/,/g, ';'); // Replace commas to avoid CSV issues
+                csv += `${item.PK},${time},${item.Type},${item.Value},${protein},"${note}"\n`;
+            });
+            
+            // Create download link
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `fitness-data-${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showToast('Data exported successfully', 'download');
+        }
+
         async function checkAuth() {
             const pass = document.getElementById('passInput').value;
             const errorEl = document.getElementById('authError');
@@ -369,6 +418,12 @@
             if (saved) {
                 document.getElementById('passInput').value = saved;
                 checkAuth();
+            }
+            
+            // PWA support - register service worker (placeholder for future offline caching)
+            if ('serviceWorker' in navigator) {
+                // For now, just check support. Add sw.js file later if you want offline functionality
+                console.log('PWA-ready: Add to Home Screen available');
             }
         });
 
@@ -511,6 +566,11 @@
             select.innerHTML = '<option value="">Search for a meal...</option>';
             const list = document.getElementById('savedMealsList');
             list.innerHTML = '<h3 style="margin-top:20px;">Existing Meals</h3>';
+            
+            if (meals.length === 0) {
+                list.innerHTML += '<p style="text-align:center; color:var(--sub); padding:20px;">No saved meals yet. Create one above!</p>';
+                return;
+            }
             meals.forEach(m => {
                 const perPortion = (m.Calories / m.Portions).toFixed(0);
                 select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
@@ -534,6 +594,10 @@
             
                 // Re-bind change event for Select2
                 $('#mealSelect').off('change').on('change', applyMeal);
+                // Re-bind portion change
+                $('#mealPortions').off('input').on('input', () => {
+                    if ($('#mealSelect').val()) applyMeal();
+                });
             } catch (e) {
                 showToast('Failed to load meals', 'exclamation-triangle');
                 console.error(e);
@@ -544,7 +608,32 @@
             const meal = meals.find(m => m.MealName === name);
             if (!meal) return;
             
+            // Pre-populate the form
             document.getElementById('m-name').value = meal.MealName;
+            document.getElementById('m-portions').value = meal.Portions || 1;
+            document.getElementById('m-protein').value = meal.Protein || 0;
+            
+            // Clear and repopulate ingredients
+            const container = document.getElementById('ingredientsList');
+            container.innerHTML = '';
+            if (meal.Ingredients && meal.Ingredients.length > 0) {
+                meal.Ingredients.forEach(ing => {
+                    const div = document.createElement('div');
+                    div.className = 'ing-row';
+                    div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ing.desc || ''}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
+                    container.appendChild(div);
+                });
+            } else {
+                // Add one empty row if no ingredients
+                const div = document.createElement('div');
+                div.className = 'ing-row';
+                div.innerHTML = '<input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals">';
+                container.appendChild(div);
+            }
+            
+            // Scroll to form
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            showToast('Meal loaded for editing', 'edit');
             document.getElementById('m-portions').value = meal.Portions;
             document.getElementById('m-protein').value = meal.Protein || 0;
             
@@ -579,9 +668,12 @@
             const mealName = $('#mealSelect').val();
             const meal = meals.find(m => m.MealName === mealName);
             if (meal) {
-                document.getElementById('foodCals').value = (meal.Calories / meal.Portions).toFixed(0);
-                document.getElementById('foodPro').value = (meal.Protein / meal.Portions).toFixed(0);
-                document.getElementById('foodNote').value = meal.MealName;
+                const portions = parseFloat(document.getElementById('mealPortions').value) || 1;
+                const perPortion = meal.Calories / meal.Portions;
+                const proteinPerPortion = meal.Protein ? meal.Protein / meal.Portions : 0;
+                document.getElementById('foodCals').value = (perPortion * portions).toFixed(0);
+                document.getElementById('foodPro').value = (proteinPerPortion * portions).toFixed(0);
+                document.getElementById('foodNote').value = portions === 1 ? meal.MealName : `${meal.MealName} (${portions}x)`;
             }
         }
 
@@ -664,32 +756,36 @@
             document.getElementById('d-in').innerText = t.in.toFixed(0);
             document.getElementById('d-out').innerText = t.out.toFixed(0);
             document.getElementById('d-net').innerText = t.net.toFixed(0);
-            document.getElementById('d-pro').innerText = `${t.pro.toFixed(0)}g`;
             document.getElementById('d-w').innerText = t.weight !== "--" ? t.weight + "kg" : "--";
             
-            // Today's Sleep (Score 0-100)
-            document.getElementById('d-sleep').innerText = t.sleep > 0 ? t.sleep : "--";
-
-            // Overall Sleep Section (Score 0-100)
-            const sleepEntries = items.filter(i => i.Type === 'SLEEP' && i.Value > 0);
-            const avgSleep = sleepEntries.length > 0 
-                ? (sleepEntries.reduce((acc, curr) => acc + curr.Value, 0) / sleepEntries.length).toFixed(0)
-                : "--";
-            
-            const avgSleepEl = document.getElementById('d-avg-sleep');
-            const indicatorEl = document.getElementById('sleep-indicator');
-            const gaugeEl = document.getElementById('sleep-gauge');
-            
-            if (avgSleep !== "--") {
-                avgSleepEl.innerText = avgSleep;
-                const score = parseFloat(avgSleep);
-                const isGood = score >= goals.sleep;
-                indicatorEl.innerHTML = isGood ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
-                gaugeEl.style.borderColor = isGood ? 'var(--green)' : 'var(--red)';
+            // Today's Protein Gauge
+            const proToday = t.pro.toFixed(0);
+            document.getElementById('d-pro-today').innerText = proToday + 'g';
+            const proIndicatorEl = document.getElementById('protein-indicator');
+            const proGaugeEl = document.getElementById('protein-gauge');
+            if (proToday > 0) {
+                const proMet = parseFloat(proToday) >= goals.protein;
+                proIndicatorEl.innerHTML = proMet ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
+                proGaugeEl.style.borderColor = proMet ? 'var(--green)' : 'var(--red)';
             } else {
-                avgSleepEl.innerText = "--";
-                indicatorEl.innerHTML = "--";
-                gaugeEl.style.borderColor = "#333";
+                proIndicatorEl.innerHTML = '--';
+                proGaugeEl.style.borderColor = '#333';
+            }
+            
+            // Today's Sleep Gauge (Score 0-100)
+            const sleepToday = t.sleep > 0 ? t.sleep.toFixed(0) : "--";
+            document.getElementById('d-sleep-today').innerText = sleepToday;
+            const sleepIndicatorEl = document.getElementById('sleep-indicator');
+            const sleepGaugeEl = document.getElementById('sleep-gauge');
+            
+            if (sleepToday !== "--") {
+                const score = parseFloat(sleepToday);
+                const isGood = score >= goals.sleep;
+                sleepIndicatorEl.innerHTML = isGood ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
+                sleepGaugeEl.style.borderColor = isGood ? 'var(--green)' : 'var(--red)';
+            } else {
+                sleepIndicatorEl.innerHTML = "--";
+                sleepGaugeEl.style.borderColor = "#333";
             }
             
             let totalNet = 0; Object.values(dayRollup).forEach(d => totalNet += d.net);
@@ -707,8 +803,14 @@
                 if (!weeklyData[monday]) weeklyData[monday] = { net: 0, gym: 0 };
                 weeklyData[monday].net += dayRollup[d].net; weeklyData[monday].gym += dayRollup[d].gym;
             });
-            const weeklyTable = document.getElementById('weeklyTable'); weeklyTable.innerHTML = '';
-            Object.keys(weeklyData).sort().reverse().forEach(w => {
+            const weeklyTable = document.getElementById('weeklyTable'); 
+            weeklyTable.innerHTML = '';
+            const weeks = Object.keys(weeklyData).sort().reverse();
+            if (weeks.length === 0) {
+                weeklyTable.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--sub); padding:20px;">No weekly data yet. Start logging!</td></tr>';
+                return;
+            }
+            weeks.forEach(w => {
                 const goalMet = weeklyData[w].net <= -goals.weeklyNet;
                 const gymMet = weeklyData[w].gym >= goals.gym;
                 
@@ -738,7 +840,7 @@
                 options: { 
                     maintainAspectRatio: false,
                     scales: { y: { beginAtZero: false } },
-                    plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } }
+                    plugins: { legend: { labels: { color: '#888', font: { size: 12 } } } }
                 } 
             });
             hideLoading();
