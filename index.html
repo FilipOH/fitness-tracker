@@ -368,32 +368,57 @@
         }
 
         function exportCSV() {
-            if (!allRawItems || allRawItems.length === 0) {
-                showToast('No data to export', 'exclamation-triangle');
-                return;
+            const timestamp = new Date().toISOString().split('T')[0];
+            
+            // Export 1: Activity Logs
+            if (allRawItems && allRawItems.length > 0) {
+                let logsCSV = 'Date,Time,Type,Value,Protein,Note\n';
+                allRawItems.forEach(item => {
+                    const time = item.SK.includes('#') ? item.SK.split('#')[1] : item.SK;
+                    const protein = item.Protein || 0;
+                    const note = (item.Note || '').replace(/,/g, ';').replace(/"/g, '""'); // Escape quotes and commas
+                    logsCSV += `${item.PK},${time},${item.Type},${item.Value},${protein},"${note}"\n`;
+                });
+                
+                const logsBlob = new Blob([logsCSV], { type: 'text/csv;charset=utf-8;' });
+                const logsLink = document.createElement('a');
+                logsLink.href = URL.createObjectURL(logsBlob);
+                logsLink.download = `fitness-logs-${timestamp}.csv`;
+                logsLink.style.visibility = 'hidden';
+                document.body.appendChild(logsLink);
+                logsLink.click();
+                document.body.removeChild(logsLink);
             }
             
-            // Create CSV content
-            let csv = 'Date,Time,Type,Value,Protein,Note\n';
-            allRawItems.forEach(item => {
-                const time = item.SK.includes('#') ? item.SK.split('#')[1] : item.SK;
-                const protein = item.Protein || 0;
-                const note = (item.Note || '').replace(/,/g, ';'); // Replace commas to avoid CSV issues
-                csv += `${item.PK},${time},${item.Type},${item.Value},${protein},"${note}"\n`;
-            });
+            // Export 2: Saved Meals
+            if (meals && meals.length > 0) {
+                let mealsCSV = 'Meal Name,Total Calories,Protein (g),Portions,Calories per Portion,Ingredients\n';
+                meals.forEach(meal => {
+                    const perPortion = (meal.Calories / meal.Portions).toFixed(0);
+                    const ingredients = meal.Ingredients && meal.Ingredients.length > 0
+                        ? meal.Ingredients.map(ing => `${ing.desc || ''} (${ing.qty || ''}) ${ing.cals || 0}cal`).join(' | ')
+                        : 'N/A';
+                    const ingredientsEscaped = ingredients.replace(/"/g, '""');
+                    mealsCSV += `"${meal.MealName}",${meal.Calories},${meal.Protein || 0},${meal.Portions},${perPortion},"${ingredientsEscaped}"\n`;
+                });
+                
+                const mealsBlob = new Blob([mealsCSV], { type: 'text/csv;charset=utf-8;' });
+                const mealsLink = document.createElement('a');
+                mealsLink.href = URL.createObjectURL(mealsBlob);
+                mealsLink.download = `saved-meals-${timestamp}.csv`;
+                mealsLink.style.visibility = 'hidden';
+                document.body.appendChild(mealsLink);
+                mealsLink.click();
+                document.body.removeChild(mealsLink);
+            }
             
-            // Create download link
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `fitness-data-${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showToast('Data exported successfully', 'download');
+            // Show appropriate message
+            if ((allRawItems && allRawItems.length > 0) || (meals && meals.length > 0)) {
+                const count = (allRawItems?.length ? 1 : 0) + (meals?.length ? 1 : 0);
+                showToast(`${count} file${count > 1 ? 's' : ''} exported successfully`, 'download');
+            } else {
+                showToast('No data to export', 'exclamation-triangle');
+            }
         }
 
         async function checkAuth() {
