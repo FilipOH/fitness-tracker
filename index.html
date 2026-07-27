@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Personal Progress</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --accent: #00adb5; --sub: #888; --green: #28a745; --red: #dc3545; }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding: 0; padding-bottom: 70px; }
+        /* Icon styling */
+        .icon-success { color: var(--green); }
+        .icon-fail { color: var(--red); opacity: 0.5; }
+        /* Select2 Dark Theme Overrides */
+        .select2-container--default .select2-selection--single { background-color: #333; border: 1px solid #444; height: 45px; border-radius: 8px; }
+        .select2-container--default .select2-selection--single .select2-selection__rendered { color: white; line-height: 45px; }
+        .select2-dropdown { background-color: #333; border: 1px solid #444; color: white; }
+        .select2-search__field { background-color: #222 !important; color: white !important; border: 1px solid #444 !important; }
+        .select2-results__option--highlighted[aria-selected] { background-color: var(--accent) !important; }
+        
+        #authOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 2000; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
+        #app { filter: blur(10px); pointer-events: none; transition: 0.3s; }
+        #app.authenticated { filter: none; pointer-events: auto; }
+        
+        /* Minimalist Tab Transitions */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .tab-content { display: none; padding: 15px; }
+        .tab-content.active { 
+            display: block; 
+            animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        
+        .nav-bar { position: fixed; bottom: 0; width: 100%; height: 60px; background: #222; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #333; z-index: 1000; }
+        .nav-item { color: var(--sub); text-decoration: none; font-size: 0.7em; display: flex; flex-direction: column; align-items: center; background: none; border: none; padding: 5px; width: 25%; }
+        .nav-item.active { color: var(--accent); }
+        h1, h2 { margin-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+        .card { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; }
+        .card.stat { text-align: center; }
+        .card.stat h2 { margin: 0; font-size: 0.7em; color: var(--sub); text-transform: uppercase; }
+        .card.stat p { margin: 5px 0 0; font-size: 1.1em; font-weight: bold; }
+        .form-row { display: flex; flex-direction: column; margin-bottom: 15px; }
+        label { font-size: 0.9em; color: var(--sub); margin-bottom: 5px; }
+        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 1em; }
+        button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        th { text-align: left; color: var(--sub); padding: 8px; border-bottom: 1px solid #333; }
+        td { padding: 8px; border-bottom: 1px solid #222; }
+        .ing-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 5px; margin-bottom: 5px; }
+        .ing-row input { padding: 8px; font-size: 0.9em; }
+        .chart-container { background: var(--card); padding: 10px; border-radius: 12px; height: 200px; }
+    </style>
+</head>
+<body>
+    <div id="authOverlay">
+        <h2 style="color: var(--accent);">Locked</h2>
+        <input type="password" id="passInput" placeholder="Password" style="width: 200px; margin-bottom: 20px; text-align: center;">
+        <button class="submit" onclick="checkAuth()" style="width: 200px;">Unlock</button>
+        <p id="authError" style="color: var(--red); font-size: 0.8em; margin-top: 10px;"></p>
+    </div>
+
+    <div id="app">
+        <!-- Tab 1: Input -->
+        <div id="inputTab" class="tab-content active">
+        <h1 style="font-size: 1.4em; color: var(--accent);">Log Entry</h1>
+        <div class="card">
+            <div class="form-row">
+                <label>Category</label>
+                <select id="entryType" onchange="toggleFields()">
+                    <option value="FOOD">Log Food</option>
+                    <option value="GYM">Log Workout</option>
+                    <option value="WEIGHT">Log Weight</option>
+                </select>
+            </div>
+
+            <!-- Food Form -->
+            <div id="foodForm">
+                <div class="form-row" style="flex-direction:row; align-items:center; gap:10px;">
+                    <input type="checkbox" id="isSavedMeal" onchange="toggleSavedMeals()">
+                    <label style="margin:0;">Use Saved Meal?</label>
+                </div>
+                <div id="mealSelectRow" class="form-row" style="display:none;">
+                    <select id="mealSelect" style="width: 100%;">
+                        <option value="">Select a meal...</option>
+                    </select>
+                </div>
+                <div id="manualFoodFields">
+                    <div class="form-row">
+                        <label>Calories</label>
+                        <input type="number" id="foodCals" placeholder="e.g. 500">
+                    </div>
+                    <div class="form-row">
+                        <label>Protein (g)</label>
+                        <input type="number" id="foodPro" placeholder="e.g. 30">
+                    </div>
+                    <div class="form-row">
+                        <label>Notes / Item Name</label>
+                        <input type="text" id="foodNote" placeholder="e.g. Chicken Salad">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>Log Time (Optional - leave for 'Now')</label>
+                    <input type="time" id="foodTime">
+                </div>
+            </div>
+
+            <!-- Workout Form -->
+            <div id="gymForm" style="display:none;">
+                <p style="font-size: 0.85em; color: var(--sub); margin-bottom: 15px;">Recording gym session for today.</p>
+                <div class="form-row"><input type="text" id="gymNote" placeholder="e.g. Upper Body"></div>
+            </div>
+
+            <!-- Weight Form -->
+            <div id="weightForm" style="display:none;">
+                <div class="form-row"><label>Weight (kg)</label><input type="number" id="weightVal" step="0.1"></div>
+            </div>
+
+            <button class="submit" onclick="submitData()">Save Entry</button>
+            <p id="feedback" style="text-align:center; font-size:0.8em; margin-top:10px;"></p>
+        </div>
+    </div>
+
+    <!-- Tab 2: Dashboard -->
+    <div id="dashTab" class="tab-content">
+        <h1 style="font-size: 1.4em; color: var(--accent);">Dashboard</h1>
+        <div class="grid">
+            <div class="card stat"><h2>In</h2><p id="d-in">--</p></div>
+            <div class="card stat"><h2>Out</h2><p id="d-out">--</p></div>
+            <div class="card stat"><h2>Net</h2><p id="d-net">--</p></div>
+            <div class="card stat"><h2>Protein</h2><p id="d-pro">--</p></div>
+            <div class="card stat"><h2>Weight</h2><p id="d-w">--</p></div>
+            <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
+        </div>
+        
+        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Overall</h2>
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin:0; font-size:0.8em; color:var(--sub); text-transform: uppercase;">Avg Sleep Score</h3>
+                <p id="d-avg-sleep" style="margin:5px 0 0; font-size:1.5em; font-weight:bold;">--</p>
+            </div>
+            <div id="sleep-gauge" style="width: 50px; height: 50px; border-radius: 50%; border: 5px solid #333; display: flex; align-items: center; justify-content: center;">
+                <span id="sleep-indicator" style="font-size: 1.2em;">--</span>
+            </div>
+        </div>
+
+        <div class="card" style="text-align:center;"><p style="font-size:0.7em; color:var(--sub);">EST. TOTAL LOSS</p><p id="d-loss" style="font-size:1.5em; font-weight:bold; color:var(--accent);">-- kg</p></div>
+        <div class="card" style="padding:5px;"><table><thead><tr><th>Week</th><th>Net</th><th>Goal</th><th>Gym</th></tr></thead><tbody id="weeklyTable"></tbody></table></div>
+        <div class="chart-container"><canvas id="weightChart"></canvas></div>
+    </div>
+
+    <!-- Tab 3: Meals -->
+    <div id="mealsTab" class="tab-content">
+        <h1 style="font-size: 1.4em; color: var(--accent);">Saved Meals</h1>
+        <div class="card">
+            <h3>Create New Meal</h3>
+            <div class="form-row"><label>Meal Name</label><input type="text" id="m-name"></div>
+            <div class="form-row"><label>Portions</label><input type="number" id="m-portions" value="1"></div>
+            <div id="ingredientsList">
+                <div class="ing-row"><input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals"></div>
+            </div>
+            <button onclick="addIngredientLine()" style="background:#444; color:white; border:none; padding:8px; border-radius:5px; margin-bottom:10px; width:100%; font-size:0.8em;">+ Add Ingredient</button>
+            <div class="form-row"><label>Total Protein (Optional)</label><input type="number" id="m-protein"></div>
+            <button class="submit" onclick="saveMeal()">Save Meal Template</button>
+        </div>
+        <div id="savedMealsList"></div>
+    </div>
+
+    <!-- Tab 4: Raw -->
+    <div id="rawTab" class="tab-content">
+        <h1 style="font-size: 1.4em; color: var(--accent);">History</h1>
+        <div class="card" style="padding:5px; overflow-x:auto;">
+            <table style="min-width:500px;"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Net</th><th>KG</th><th>Gym</th><th>Pro</th><th>Slp</th></tr></thead><tbody id="rawTable"></tbody></table>
+        </div>
+    </div>
+
+    <nav class="nav-bar">
+        <button class="nav-item active" onclick="switchTab('inputTab', this)"><span>✏️</span><span>Log</span></button>
+        <button class="nav-item" onclick="switchTab('dashTab', this)"><span>📊</span><span>Dash</span></button>
+        <button class="nav-item" onclick="switchTab('mealsTab', this)"><span>🍱</span><span>Meals</span></button>
+        <button class="nav-item" onclick="switchTab('rawTab', this)"><span>📜</span><span>Raw</span></button>
+    </nav>
+    </div> <!-- Close #app -->
+
+    <script>
+        const API_KEY = 'my_secret_token_123';
+        const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
+        let meals = [];
+        let chartInstance = null;
+
+        async function checkAuth() {
+            const pass = document.getElementById('passInput').value;
+            const errorEl = document.getElementById('authError');
+            
+            try {
+                // We fetch a file that only exists if the password is correct path-wise
+                // This is a simple S3-native way to do "password protection" without a backend
+                const res = await fetch(`auth/${pass}.json`);
+                if (res.ok) {
+                    document.getElementById('authOverlay').style.display = 'none';
+                    document.getElementById('app').classList.add('authenticated');
+                    localStorage.setItem('cal_auth', pass);
+                    loadMeals(); // Initial load only after auth
+                } else {
+                    errorEl.innerText = "Incorrect Password";
+                }
+            } catch (e) {
+                errorEl.innerText = "Error validating password";
+            }
+        }
+
+        // Auto-login if previously authenticated
+        window.addEventListener('load', () => {
+            const saved = localStorage.getItem('cal_auth');
+            if (saved) {
+                document.getElementById('passInput').value = saved;
+                checkAuth();
+            }
+        });
+
+        function switchTab(id, el) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            el.classList.add('active');
+            if (id === 'dashTab' || id === 'rawTab') loadDashboard();
+            if (id === 'mealsTab' || id === 'inputTab') loadMeals();
+        }
+
+        function toggleFields() {
+            const type = document.getElementById('entryType').value;
+            document.getElementById('foodForm').style.display = type === 'FOOD' ? 'block' : 'none';
+            document.getElementById('gymForm').style.display = type === 'GYM' ? 'block' : 'none';
+            document.getElementById('weightForm').style.display = type === 'WEIGHT' ? 'block' : 'none';
+        }
+
+        function toggleSavedMeals() {
+            const isSaved = document.getElementById('isSavedMeal').checked;
+            document.getElementById('mealSelectRow').style.display = isSaved ? 'block' : 'none';
+            document.getElementById('manualFoodFields').style.display = isSaved ? 'none' : 'block';
+            if (isSaved) {
+                $('#mealSelect').select2({
+                    placeholder: "Search for a meal...",
+                    allowClear: true,
+                    width: '100%'
+                });
+            }
+        }
+
+        function addIngredientLine() {
+            const div = document.createElement('div');
+            div.className = 'ing-row';
+            div.innerHTML = '<input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals">';
+            document.getElementById('ingredientsList').appendChild(div);
+        }
+
+        async function saveMeal() {
+            const name = document.getElementById('m-name').value;
+            const portions = document.getElementById('m-portions').value;
+            const protein = document.getElementById('m-protein').value;
+            const ings = [];
+            let totalCals = 0;
+            document.querySelectorAll('#ingredientsList .ing-row').forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                if (inputs[0].value) {
+                    ings.push({ desc: inputs[0].value, qty: inputs[1].value, cals: parseFloat(inputs[2].value || 0) });
+                    totalCals += parseFloat(inputs[2].value || 0);
+                }
+            });
+            await fetch(`${API_BASE}/meals`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                body: JSON.stringify({ name, calories: totalCals, protein, portions, ingredients: ings })
+            });
+            alert('Meal Saved');
+            loadMeals();
+        }
+
+        async function loadMeals() {
+            const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
+            const data = await res.json();
+            meals = data.meals;
+            const select = document.getElementById('mealSelect');
+            select.innerHTML = '<option value="">Search for a meal...</option>';
+            const list = document.getElementById('savedMealsList');
+            list.innerHTML = '<h3>Existing Meals</h3>';
+            meals.forEach(m => {
+                select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${(m.Calories/m.Portions).toFixed(0)} cal)</option>`;
+                list.innerHTML += `<div class="card"><strong>${m.MealName}</strong> - ${(m.Calories/m.Portions).toFixed(0)} cal/portion</div>`;
+            });
+            
+            // Re-bind change event for Select2
+            $('#mealSelect').off('change').on('change', applyMeal);
+        }
+
+        function applyMeal() {
+            const mealName = $('#mealSelect').val();
+            const meal = meals.find(m => m.MealName === mealName);
+            if (meal) {
+                document.getElementById('foodCals').value = (meal.Calories / meal.Portions).toFixed(0);
+                document.getElementById('foodPro').value = (meal.Protein / meal.Portions).toFixed(0);
+                document.getElementById('foodNote').value = meal.MealName;
+            }
+        }
+
+        async function submitData() {
+            const type = document.getElementById('entryType').value;
+            let val, pro = 0, note = "", customTime = null;
+            if (type === 'FOOD') { 
+                val = document.getElementById('foodCals').value; 
+                pro = document.getElementById('foodPro').value; 
+                note = document.getElementById('foodNote').value; 
+                customTime = document.getElementById('foodTime').value;
+            }
+            else if (type === 'GYM') { val = 1; note = document.getElementById('gymNote').value; }
+            else if (type === 'WEIGHT') { val = document.getElementById('weightVal').value; }
+
+            const res = await fetch(`${API_BASE}/log`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                body: JSON.stringify({ type, value: parseFloat(val), protein: parseFloat(pro || 0), note, time: customTime })
+            });
+            if (res.ok) { alert('Saved!'); document.querySelectorAll('input').forEach(i => i.value = ''); }
+        }
+
+        async function loadDashboard() {
+            const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
+            const data = await res.json();
+            const items = data.items;
+            const baseline = data.baseline;
+            const today = new Date().toISOString().split('T')[0];
+            const uniqueDays = [...new Set(items.map(i => i.PK))].sort().reverse();
+            const dayRollup = {};
+            uniqueDays.forEach(d => {
+                let dIn = 0, dOut = baseline, dPro = 0, dW = "--", dGym = 0, dSleep = 0;
+                items.filter(i => i.PK === d).forEach(i => {
+                    if (i.Type === 'FOOD') { dIn += i.Value; dPro += (i.Protein || 0); }
+                    if (i.Type === 'ACTIVE') dOut += i.Value;
+                    if (i.Type === 'WEIGHT') dW = i.Value;
+                    if (i.Type === 'GYM') dGym = 1;
+                    if (i.Type === 'SLEEP') dSleep = i.Value;
+                });
+                dayRollup[d] = { in: dIn, out: dOut, net: dIn - dOut, pro: dPro, weight: dW, gym: dGym, sleep: dSleep };
+            });
+            const t = dayRollup[today] || { in:0, out:baseline, net:-baseline, pro:0, weight:"--", gym:0, sleep:0 };
+            document.getElementById('d-in').innerText = t.in.toFixed(0);
+            document.getElementById('d-out').innerText = t.out.toFixed(0);
+            document.getElementById('d-net').innerText = t.net.toFixed(0);
+            document.getElementById('d-pro').innerText = `${t.pro.toFixed(0)}g`;
+            document.getElementById('d-w').innerText = t.weight !== "--" ? t.weight + "kg" : "--";
+            
+            // Today's Sleep (Score 0-100)
+            document.getElementById('d-sleep').innerText = t.sleep > 0 ? t.sleep : "--";
+
+            // Overall Sleep Section (Score 0-100)
+            const sleepEntries = items.filter(i => i.Type === 'SLEEP' && i.Value > 0);
+            const avgSleep = sleepEntries.length > 0 
+                ? (sleepEntries.reduce((acc, curr) => acc + curr.Value, 0) / sleepEntries.length).toFixed(0)
+                : "--";
+            
+            const avgSleepEl = document.getElementById('d-avg-sleep');
+            const indicatorEl = document.getElementById('sleep-indicator');
+            const gaugeEl = document.getElementById('sleep-gauge');
+            
+            if (avgSleep !== "--") {
+                avgSleepEl.innerText = avgSleep;
+                const score = parseFloat(avgSleep);
+                const isGood = score >= 75; // Assuming 75+ is a "good" sleep score
+                indicatorEl.innerHTML = isGood ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
+                gaugeEl.style.borderColor = isGood ? 'var(--green)' : 'var(--red)';
+            } else {
+                avgSleepEl.innerText = "--";
+                indicatorEl.innerHTML = "--";
+                gaugeEl.style.borderColor = "#333";
+            }
+            
+            let totalNet = 0; Object.values(dayRollup).forEach(d => totalNet += d.net);
+            document.getElementById('d-loss').innerText = ((totalNet * (1 / 7.7)) / 1000).toFixed(2) + ' kg';
+
+            const rawBody = document.getElementById('rawTable'); rawBody.innerHTML = '';
+            uniqueDays.forEach(d => {
+                const r = dayRollup[d];
+                rawBody.innerHTML += `<tr><td>${d.slice(5)}</td><td>${r.in}</td><td>${r.out.toFixed(0)}</td><td>${r.net.toFixed(0)}</td><td>${r.weight}</td><td>${r.gym?'Y':'N'}</td><td>${r.pro}</td><td>${r.sleep||'-'}</td></tr>`;
+            });
+            
+            const weeklyData = {};
+            uniqueDays.forEach(d => {
+                const date = new Date(d); const monday = new Date(date.setDate(date.getDate() - (date.getDay() || 7) + 1)).toISOString().split('T')[0];
+                if (!weeklyData[monday]) weeklyData[monday] = { net: 0, gym: 0 };
+                weeklyData[monday].net += dayRollup[d].net; weeklyData[monday].gym += dayRollup[d].gym;
+            });
+            const weeklyTable = document.getElementById('weeklyTable'); weeklyTable.innerHTML = '';
+            Object.keys(weeklyData).sort().reverse().forEach(w => {
+                const goalMet = weeklyData[w].net <= -3850;
+                const gymMet = weeklyData[w].gym >= 2;
+                
+                const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
+                const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
+                
+                weeklyTable.innerHTML += `<tr><td>${w.slice(5)}</td><td>${weeklyData[w].net.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
+            });
+            const weights = items.filter(i => i.Type === 'WEIGHT').sort((a,b) => a.PK.localeCompare(b.PK));
+            
+            // Calculate 4-day rolling average
+            const rollingAvg = weights.map((w, idx) => {
+                const sub = weights.slice(Math.max(0, idx - 3), idx + 1);
+                return sub.reduce((acc, curr) => acc + curr.Value, 0) / sub.length;
+            });
+
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(document.getElementById('weightChart'), { 
+                type: 'line', 
+                data: { 
+                    labels: weights.map(w => w.PK.slice(5)), 
+                    datasets: [
+                        { label: 'Weight', data: weights.map(w => w.Value), borderColor: '#00adb5', tension: 0.1, pointRadius: 2 },
+                        { label: '4D Avg', data: rollingAvg, borderColor: '#ff9f43', borderDash: [5, 5], tension: 0.4, pointRadius: 0 }
+                    ] 
+                }, 
+                options: { 
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: false } },
+                    plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } }
+                } 
+            });
+        }
+        toggleFields();
+        // Removed window.onload = loadMeals; as it's now handled by checkAuth
+    </script>
+</body>
+</html>
