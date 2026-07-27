@@ -294,6 +294,9 @@
     </div> <!-- Close #app -->
 
     <script>
+        // Note: API key is visible in client code (unavoidable for static sites).
+        // Protection: Lambda validates key + AWS can add rate limiting/WAF if needed.
+        // To rotate key if compromised: update Lambda env var + redeploy.
         const API_KEY = 'my_secret_token_123';
         const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
         let meals = [];
@@ -404,7 +407,7 @@
                 if (res.ok) {
                     document.getElementById('authOverlay').style.display = 'none';
                     document.getElementById('app').classList.add('authenticated');
-                    localStorage.setItem('cal_auth', pass);
+                    sessionStorage.setItem('cal_auth', pass); // Session-only storage
                     loadMeals(); // Initial load only after auth
                     fetchGoals();
                 } else {
@@ -415,10 +418,10 @@
             }
         }
 
-        // Auto-login if previously authenticated
+        // Auto-login if previously authenticated (session-only)
         window.addEventListener('load', () => {
             document.getElementById('logDate').valueAsDate = new Date();
-            const saved = localStorage.getItem('cal_auth');
+            const saved = sessionStorage.getItem('cal_auth');
             if (saved) {
                 document.getElementById('passInput').value = saved;
                 checkAuth();
