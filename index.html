@@ -180,10 +180,23 @@
         </div>
     </div>
 
+    <!-- Tab 5: Goals -->
+    <div id="goalsTab" class="tab-content">
+        <h1 style="font-size: 1.4em; color: var(--accent);">Set Goals</h1>
+        <div class="card">
+            <div class="form-row"><label>Weekly Calorie Deficit (e.g. 3850)</label><input type="number" id="g-weekly-net"></div>
+            <div class="form-row"><label>Daily Protein Goal (g)</label><input type="number" id="g-protein"></div>
+            <div class="form-row"><label>Daily Sleep Score Goal (0-100)</label><input type="number" id="g-sleep"></div>
+            <div class="form-row"><label>Weekly Gym Target (sessions)</label><input type="number" id="g-gym"></div>
+            <button class="submit" onclick="saveGoals()">Update Goals</button>
+        </div>
+    </div>
+
     <nav class="nav-bar">
         <button class="nav-item active" onclick="switchTab('inputTab', this)"><span>✏️</span><span>Log</span></button>
         <button class="nav-item" onclick="switchTab('dashTab', this)"><span>📊</span><span>Dash</span></button>
         <button class="nav-item" onclick="switchTab('mealsTab', this)"><span>🍱</span><span>Meals</span></button>
+        <button class="nav-item" onclick="switchTab('goalsTab', this)"><span>🎯</span><span>Goals</span></button>
         <button class="nav-item" onclick="switchTab('rawTab', this)"><span>📜</span><span>Raw</span></button>
     </nav>
     </div> <!-- Close #app -->
@@ -193,6 +206,42 @@
         const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
         let meals = [];
         let chartInstance = null;
+        let goals = { weeklyNet: 3850, protein: 80, sleep: 75, gym: 2 };
+
+        async function fetchGoals() {
+            try {
+                const res = await fetch(`${API_BASE}/config?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.goals) {
+                        goals = data.goals;
+                        document.getElementById('g-weekly-net').value = goals.weeklyNet;
+                        document.getElementById('g-protein').value = goals.protein;
+                        document.getElementById('g-sleep').value = goals.sleep;
+                        document.getElementById('g-gym').value = goals.gym;
+                    }
+                }
+            } catch (e) { console.log("Using default goals", e); }
+        }
+
+        async function saveGoals() {
+            const newGoals = {
+                weeklyNet: parseFloat(document.getElementById('g-weekly-net').value),
+                protein: parseFloat(document.getElementById('g-protein').value),
+                sleep: parseFloat(document.getElementById('g-sleep').value),
+                gym: parseFloat(document.getElementById('g-gym').value)
+            };
+            const res = await fetch(`${API_BASE}/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                body: JSON.stringify({ goals: newGoals })
+            });
+            if (res.ok) {
+                alert('Goals Updated!');
+                goals = newGoals;
+                loadDashboard();
+            }
+        }
 
         async function checkAuth() {
             const pass = document.getElementById('passInput').value;
@@ -207,6 +256,7 @@
                     document.getElementById('app').classList.add('authenticated');
                     localStorage.setItem('cal_auth', pass);
                     loadMeals(); // Initial load only after auth
+                    fetchGoals();
                 } else {
                     errorEl.innerText = "Incorrect Password";
                 }
@@ -231,6 +281,7 @@
             el.classList.add('active');
             if (id === 'dashTab' || id === 'rawTab') loadDashboard();
             if (id === 'mealsTab' || id === 'inputTab') loadMeals();
+            if (id === 'goalsTab') fetchGoals();
         }
 
         function toggleFields() {
@@ -371,7 +422,7 @@
             if (avgSleep !== "--") {
                 avgSleepEl.innerText = avgSleep;
                 const score = parseFloat(avgSleep);
-                const isGood = score >= 75; // Assuming 75+ is a "good" sleep score
+                const isGood = score >= goals.sleep;
                 indicatorEl.innerHTML = isGood ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
                 gaugeEl.style.borderColor = isGood ? 'var(--green)' : 'var(--red)';
             } else {
@@ -397,8 +448,8 @@
             });
             const weeklyTable = document.getElementById('weeklyTable'); weeklyTable.innerHTML = '';
             Object.keys(weeklyData).sort().reverse().forEach(w => {
-                const goalMet = weeklyData[w].net <= -3850;
-                const gymMet = weeklyData[w].gym >= 2;
+                const goalMet = weeklyData[w].net <= -goals.weeklyNet;
+                const gymMet = weeklyData[w].gym >= goals.gym;
                 
                 const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
                 const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';

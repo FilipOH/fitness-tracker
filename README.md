@@ -1,4 +1,4 @@
-# Serverless Fitness Tracker 🏋️‍♂️🍎
+# Serverless Fitness Tracker
 
 An ultra-cheap, serverless, iPhone-compatible fitness tracking workflow.
 

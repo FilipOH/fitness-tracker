@@ -34,6 +34,11 @@ def lambda_handler(event, context):
         if method == 'POST': return handle_meal_post(event, API_KEY)
         if method == 'GET': return handle_meal_get(event, API_KEY)
     
+    # Handle Config API
+    if path == '/config':
+        if method == 'POST': return handle_config_post(event, API_KEY)
+        if method == 'GET': return handle_config_get(event, API_KEY)
+    
     # Handle Data API
     if path == '/data':
         return handle_get(event, API_KEY, BASELINE)
@@ -72,6 +77,42 @@ def handle_meal_get(event, api_key):
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
         'body': json.dumps({'meals': response.get('Items', [])}, cls=DecimalEncoder)
     }
+
+def handle_config_post(event, api_key):
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    if headers.get('x-api-key') != api_key:
+        return {'statusCode': 403, 'body': 'Unauthorized'}
+    try:
+        body = json.loads(event.get('body', '{}'))
+        item = {
+            'PK': 'CONFIG',
+            'SK': 'GOALS',
+            'Goals': {
+                'weeklyNet': Decimal(str(body['goals']['weeklyNet'])),
+                'protein': Decimal(str(body['goals']['protein'])),
+                'sleep': Decimal(str(body['goals']['sleep'])),
+                'gym': Decimal(str(body['goals']['gym']))
+            }
+        }
+        table.put_item(Item=item)
+        return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Saved'}
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
+
+def handle_config_get(event, api_key):
+    try:
+        response = table.get_item(Key={'PK': 'CONFIG', 'SK': 'GOALS'})
+        class DecimalEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, Decimal): return float(obj)
+                return super(DecimalEncoder, self).default(obj)
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'goals': response.get('Item', {}).get('Goals', {})}, cls=DecimalEncoder)
+        }
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
 
 def handle_post(event, api_key):
     headers = {k.lower(): v for k, v in event.get('headers', {}).items()}

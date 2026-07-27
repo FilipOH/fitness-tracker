@@ -83,6 +83,18 @@ Resources:
             ApiId: !Ref MyApi
             Path: /meals
             Method: GET
+        ConfigPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /config
+            Method: POST
+        ConfigGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /config
+            Method: GET
 
   # 1c. Explicit HttpApi with CORS
   MyApi:
