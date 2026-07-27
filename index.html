@@ -317,6 +317,12 @@
         let logPage = 1;
         const logPageSize = 25;
 
+        // Helper function to convert YYYY-MM-DD to DD-MM format
+        function formatDateDDMM(isoDate) {
+            const parts = isoDate.split('-');
+            return `${parts[2]}-${parts[1]}`;
+        }
+
         function showToast(message, icon = 'check-circle') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -851,7 +857,7 @@
             const rawBody = document.getElementById('rawTable'); rawBody.innerHTML = '';
             uniqueDays.forEach(d => {
                 const r = dayRollup[d];
-                rawBody.innerHTML += `<tr><td>${d.slice(5)}</td><td>${r.in}</td><td>${r.out.toFixed(0)}</td><td>${r.net.toFixed(0)}</td><td>${r.weight}</td><td>${r.gym?'Y':'N'}</td><td>${r.pro}</td><td>${r.sleep||'-'}</td></tr>`;
+                rawBody.innerHTML += `<tr><td>${formatDateDDMM(d)}</td><td>${r.in}</td><td>${r.out.toFixed(0)}</td><td>${r.net.toFixed(0)}</td><td>${r.weight}</td><td>${r.gym?'Y':'N'}</td><td>${r.pro}</td><td>${r.sleep||'-'}</td></tr>`;
             });
             
             const weeklyData = {};
@@ -880,7 +886,7 @@
                 const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
                 const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
                 
-                weeklyTable.innerHTML += `<tr><td>${w.slice(5)}</td><td>${weekNet.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
+                weeklyTable.innerHTML += `<tr><td>${formatDateDDMM(w)}</td><td>${weekNet.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
             });
             const weights = items.filter(i => i.Type === 'WEIGHT').sort((a,b) => a.PK.localeCompare(b.PK));
             
@@ -894,7 +900,7 @@
             chartInstance = new Chart(document.getElementById('weightChart'), { 
                 type: 'line', 
                 data: { 
-                    labels: weights.map(w => w.PK.slice(5)), 
+                    labels: weights.map(w => formatDateDDMM(w.PK)), 
                     datasets: [
                         { label: 'Weight', data: weights.map(w => w.Value), borderColor: '#00adb5', tension: 0.1, pointRadius: 2 },
                         { label: '4D Avg', data: rollingAvg, borderColor: '#ff9f43', borderDash: [5, 5], tension: 0.4, pointRadius: 0 }
