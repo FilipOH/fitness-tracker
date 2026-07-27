@@ -6,7 +6,7 @@ Globals:
   Function:
     Timeout: 30
     MemorySize: 128
-    Runtime: python3.11
+    Runtime: python3.14
     Environment:
       Variables:
         TABLE_NAME: !Ref CalorieTrackerTable
@@ -83,6 +83,12 @@ Resources:
             ApiId: !Ref MyApi
             Path: /meals
             Method: GET
+        MealDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /meals
+            Method: DELETE
         ConfigPost:
           Type: HttpApi
           Properties:

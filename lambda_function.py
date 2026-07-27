@@ -21,7 +21,7 @@ def lambda_handler(event, context):
             'statusCode': 200,
             'headers': {
                 'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+                'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type,x-api-key'
             },
             'body': ''
@@ -33,6 +33,7 @@ def lambda_handler(event, context):
     if path == '/meals':
         if method == 'POST': return handle_meal_post(event, API_KEY)
         if method == 'GET': return handle_meal_get(event, API_KEY)
+        if method == 'DELETE': return handle_meal_delete(event, API_KEY)
     
     # Handle Config API
     if path == '/config':
@@ -45,6 +46,9 @@ def lambda_handler(event, context):
     
     if method == 'POST':
         return handle_post(event, API_KEY)
+    
+    if method == 'DELETE' and path == '/log':
+        return handle_delete_log(event, API_KEY)
         
     return {'statusCode': 404, 'body': 'Not Found'}
 
@@ -77,6 +81,21 @@ def handle_meal_get(event, api_key):
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
         'body': json.dumps({'meals': response.get('Items', [])}, cls=DecimalEncoder)
     }
+
+def handle_meal_delete(event, api_key):
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    if headers.get('x-api-key') != api_key:
+        return {'statusCode': 403, 'body': 'Unauthorized'}
+    try:
+        name = event.get('queryStringParameters', {}).get('name')
+        if not name:
+            body = json.loads(event.get('body', '{}'))
+            name = body.get('name')
+        
+        meals_table.delete_item(Key={'MealName': name})
+        return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Deleted'}
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
 
 def handle_config_post(event, api_key):
     headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
@@ -126,9 +145,10 @@ def handle_post(event, api_key):
         note = body.get('note', '')
         protein = Decimal(str(body.get('protein', 0))) if data_type == 'FOOD' else 0
         custom_time = body.get('time') # HH:MM
+        custom_date = body.get('date') # YYYY-MM-DD
         
         now = datetime.now()
-        date_str = now.strftime('%Y-%m-%d')
+        date_str = custom_date if custom_date else now.strftime('%Y-%m-%d')
         
         # Determine the time suffix
         if custom_time:
@@ -187,4 +207,22 @@ def handle_get(event, api_key, baseline):
             'baseline': float(baseline)
         }, cls=DecimalEncoder)
     }
+
+def handle_delete_log(event, api_key):
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    if headers.get('x-api-key') != api_key:
+        return {'statusCode': 403, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Unauthorized'}
+    
+    try:
+        params = event.get('queryStringParameters', {})
+        pk = params.get('pk')
+        sk = params.get('sk')
+        
+        if not pk or not sk:
+            return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Missing pk or sk'}
+        
+        table.delete_item(Key={'PK': pk, 'SK': sk})
+        return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Deleted'}
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
 

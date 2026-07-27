@@ -5,7 +5,7 @@ Globals:
   Function:
     Timeout: 30
     MemorySize: 128
-    Runtime: python3.11
+    Runtime: python3.14
     Environment:
       Variables:
         TABLE_NAME:
@@ -83,6 +83,27 @@ Resources:
             ApiId:
               Ref: MyApi
             Path: /meals
+            Method: GET
+        MealDelete:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: MyApi
+            Path: /meals
+            Method: DELETE
+        ConfigPost:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: MyApi
+            Path: /config
+            Method: POST
+        ConfigGet:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: MyApi
+            Path: /config
             Method: GET
     Metadata:
       SamResourceId: TrackerFunction

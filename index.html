@@ -56,9 +56,44 @@
         .ing-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 5px; margin-bottom: 5px; }
         .ing-row input { padding: 8px; font-size: 0.9em; }
         .chart-container { background: var(--card); padding: 10px; border-radius: 12px; height: 200px; }
+        
+        /* Toast Notification Styling */
+        .toast {
+            background: rgba(30, 30, 30, 0.95);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            border-left: 4px solid var(--accent);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: toastIn 0.3s ease-out forwards;
+            pointer-events: auto;
+            min-width: 200px;
+            backdrop-filter: blur(5px);
+        }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(20px); }
+        }
     </style>
 </head>
 <body>
+    <div id="toast-container" style="position:fixed; top:20px; right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
+    
+    <div id="loadingOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:none; align-items:center; justify-content:center;">
+        <div style="text-align:center;">
+            <div style="border:4px solid #333; border-top:4px solid var(--accent); border-radius:50%; width:50px; height:50px; animation:spin 1s linear infinite; margin:0 auto;"></div>
+            <p style="color:white; margin-top:15px; font-size:0.9em;">Loading...</p>
+        </div>
+    </div>
+    <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+
     <div id="authOverlay">
         <h2 style="color: var(--accent);">Locked</h2>
         <input type="password" id="passInput" placeholder="Password" style="width: 200px; margin-bottom: 20px; text-align: center;">
@@ -72,10 +107,16 @@
         <h1 style="font-size: 1.4em; color: var(--accent);">Log Entry</h1>
         <div class="card">
             <div class="form-row">
+                <label>Date</label>
+                <input type="date" id="logDate">
+            </div>
+            <div class="form-row">
                 <label>Category</label>
                 <select id="entryType" onchange="toggleFields()">
                     <option value="FOOD">Log Food</option>
                     <option value="GYM">Log Workout</option>
+                    <option value="ACTIVE">Log Calories Burned</option>
+                    <option value="SLEEP">Log Sleep Score</option>
                     <option value="WEIGHT">Log Weight</option>
                 </select>
             </div>
@@ -94,11 +135,11 @@
                 <div id="manualFoodFields">
                     <div class="form-row">
                         <label>Calories</label>
-                        <input type="number" id="foodCals" placeholder="e.g. 500">
+                        <input type="number" id="foodCals" placeholder="e.g. 500" min="0" max="5000">
                     </div>
                     <div class="form-row">
                         <label>Protein (g)</label>
-                        <input type="number" id="foodPro" placeholder="e.g. 30">
+                        <input type="number" id="foodPro" placeholder="e.g. 30" min="0" max="500">
                     </div>
                     <div class="form-row">
                         <label>Notes / Item Name</label>
@@ -117,9 +158,19 @@
                 <div class="form-row"><input type="text" id="gymNote" placeholder="e.g. Upper Body"></div>
             </div>
 
+            <!-- Active Form -->
+            <div id="activeForm" style="display:none;">
+                <div class="form-row"><label>Calories Burned (Active)</label><input type="number" id="activeVal" placeholder="e.g. 450" min="0" max="2000"></div>
+            </div>
+
+            <!-- Sleep Form -->
+            <div id="sleepForm" style="display:none;">
+                <div class="form-row"><label>Sleep Score (0-100)</label><input type="number" id="sleepVal" placeholder="e.g. 85" min="0" max="100"></div>
+            </div>
+
             <!-- Weight Form -->
             <div id="weightForm" style="display:none;">
-                <div class="form-row"><label>Weight (kg)</label><input type="number" id="weightVal" step="0.1"></div>
+                <div class="form-row"><label>Weight (kg)</label><input type="number" id="weightVal" step="0.1" min="30" max="300"></div>
             </div>
 
             <button class="submit" onclick="submitData()">Save Entry</button>
@@ -155,8 +206,7 @@
         <div class="chart-container"><canvas id="weightChart"></canvas></div>
     </div>
 
-    <!-- Tab 3: Meals -->
-    <div id="mealsTab" class="tab-content">
+        <div id="mealsTab" class="tab-content">
         <h1 style="font-size: 1.4em; color: var(--accent);">Saved Meals</h1>
         <div class="card">
             <h3>Create New Meal</h3>
@@ -169,14 +219,36 @@
             <div class="form-row"><label>Total Protein (Optional)</label><input type="number" id="m-protein"></div>
             <button class="submit" onclick="saveMeal()">Save Meal Template</button>
         </div>
+        <div class="form-row" style="margin-top:20px;">
+            <input type="text" id="mealSearchInput" placeholder="🔍 Search existing meals..." onkeyup="filterMealsList()" style="width:100%; padding:12px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:white;">
+        </div>
         <div id="savedMealsList"></div>
     </div>
 
     <!-- Tab 4: Raw -->
     <div id="rawTab" class="tab-content">
         <h1 style="font-size: 1.4em; color: var(--accent);">History</h1>
-        <div class="card" style="padding:5px; overflow-x:auto;">
-            <table style="min-width:500px;"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Net</th><th>KG</th><th>Gym</th><th>Pro</th><th>Slp</th></tr></thead><tbody id="rawTable"></tbody></table>
+        
+        <div style="display: flex; background: #222; border-radius: 8px; margin-bottom: 15px; padding: 4px;">
+            <button id="btnDaily" onclick="switchRawView('daily')" style="flex:1; background:var(--accent); color:white; border:none; padding:8px; border-radius:6px; font-size:0.8em; font-weight:bold; transition:0.3s;">Daily Summary</button>
+            <button id="btnLogs" onclick="switchRawView('logs')" style="flex:1; background:transparent; color:var(--sub); border:none; padding:8px; border-radius:6px; font-size:0.8em; font-weight:bold; transition:0.3s;">Detailed Logs</button>
+        </div>
+
+        <div id="dailyView">
+            <div class="card" style="padding:5px; overflow-x:auto;">
+                <table style="min-width:500px;"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Net</th><th>KG</th><th>Gym</th><th>Pro</th><th>Slp</th></tr></thead><tbody id="rawTable"></tbody></table>
+            </div>
+        </div>
+
+        <div id="logsView" style="display:none;">
+            <div class="card" style="padding:5px; overflow-x:auto;">
+                <table style="min-width:500px;"><thead><tr><th>Date/Time</th><th>Type</th><th>Cals</th><th>Prot</th><th>Note</th><th style="width:40px;"></th></tr></thead><tbody id="logsTable"></tbody></table>
+            </div>
+            <div style="display:flex; justify-content:center; gap:20px; margin-top:10px;">
+                <button id="btnPrevPage" onclick="changeLogsPage(-1)" style="background:#334; color:white; border:none; padding:8px 15px; border-radius:5px;">Prev</button>
+                <span id="logPageIndicator" style="align-self:center; color:var(--sub); font-size:0.9em;">Page 1</span>
+                <button onclick="changeLogsPage(1)" style="background:#334; color:white; border:none; padding:8px 15px; border-radius:5px;">Next</button>
+            </div>
         </div>
     </div>
 
@@ -207,9 +279,34 @@
         let meals = [];
         let chartInstance = null;
         let goals = { weeklyNet: 3850, protein: 80, sleep: 75, gym: 2 };
+        let allRawItems = [];
+        let logPage = 1;
+        const logPageSize = 25;
+
+        function showToast(message, icon = 'check-circle') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `<i class="fas fa-${icon}" style="color:var(--accent);"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'toastOut 0.3s ease-in forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
 
         async function fetchGoals() {
             try {
+                showLoading();
                 const res = await fetch(`${API_BASE}/config?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
                 if (res.ok) {
                     const data = await res.json();
@@ -237,7 +334,7 @@
                 body: JSON.stringify({ goals: newGoals })
             });
             if (res.ok) {
-                alert('Goals Updated!');
+                showToast('Goals Updated');
                 goals = newGoals;
                 loadDashboard();
             }
@@ -267,6 +364,7 @@
 
         // Auto-login if previously authenticated
         window.addEventListener('load', () => {
+            document.getElementById('logDate').valueAsDate = new Date();
             const saved = localStorage.getItem('cal_auth');
             if (saved) {
                 document.getElementById('passInput').value = saved;
@@ -281,13 +379,63 @@
             el.classList.add('active');
             if (id === 'dashTab' || id === 'rawTab') loadDashboard();
             if (id === 'mealsTab' || id === 'inputTab') loadMeals();
+            if (id === 'inputTab') document.getElementById('logDate').valueAsDate = new Date();
             if (id === 'goalsTab') fetchGoals();
+        }
+
+        function switchRawView(view) {
+            const isDaily = view === 'daily';
+            document.getElementById('dailyView').style.display = isDaily ? 'block' : 'none';
+            document.getElementById('logsView').style.display = isDaily ? 'none' : 'block';
+            
+            const btnD = document.getElementById('btnDaily');
+            const btnL = document.getElementById('btnLogs');
+            
+            btnD.style.background = isDaily ? 'var(--accent)' : 'transparent';
+            btnD.style.color = isDaily ? 'white' : 'var(--sub)';
+            btnL.style.background = isDaily ? 'transparent' : 'var(--accent)';
+            btnL.style.color = isDaily ? 'white' : 'var(--sub)';
+            
+            if (!isDaily) renderDetailedLogs();
+        }
+
+        function changeLogsPage(dir) {
+            const maxPage = Math.ceil(allRawItems.length / logPageSize);
+            logPage += dir;
+            if (logPage < 1) logPage = 1;
+            if (logPage > maxPage) logPage = maxPage;
+            renderDetailedLogs();
+            
+            // Disable/enable buttons based on page
+            document.getElementById('btnPrevPage').disabled = logPage === 1;
+            document.getElementById('btnPrevPage').style.opacity = logPage === 1 ? '0.5' : '1';
+        }
+
+        function renderDetailedLogs() {
+            const start = (logPage - 1) * logPageSize;
+            const end = start + logPageSize;
+            // Sort by Date then SK (time) descending
+            const sorted = [...allRawItems].sort((a,b) => (b.PK + b.SK).localeCompare(a.PK + a.SK));
+            const pageItems = sorted.slice(start, end);
+            
+            const tbody = document.getElementById('logsTable');
+            tbody.innerHTML = '';
+            pageItems.forEach(i => {
+                const time = i.SK.includes('#') ? i.SK.split('#')[1] : i.SK;
+                const displayVal = i.Type === 'GYM' ? '✓' : i.Value.toFixed(0);
+                const displayPro = i.Type === 'FOOD' ? (i.Protein || 0).toFixed(0) : '-';
+                const deleteBtn = i.SK.includes('DAILY') ? '' : `<button onclick="deleteLogEntry('${i.PK}','${i.SK}')" style="background:none; border:none; color:#ff4444; cursor:pointer; font-size:1.1em;"><i class="fas fa-trash"></i></button>`;
+                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${i.Note || ''}</td><td>${deleteBtn}</td></tr>`;
+            });
+            document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
         }
 
         function toggleFields() {
             const type = document.getElementById('entryType').value;
             document.getElementById('foodForm').style.display = type === 'FOOD' ? 'block' : 'none';
             document.getElementById('gymForm').style.display = type === 'GYM' ? 'block' : 'none';
+            document.getElementById('activeForm').style.display = type === 'ACTIVE' ? 'block' : 'none';
+            document.getElementById('sleepForm').style.display = type === 'SLEEP' ? 'block' : 'none';
             document.getElementById('weightForm').style.display = type === 'WEIGHT' ? 'block' : 'none';
         }
 
@@ -313,6 +461,10 @@
 
         async function saveMeal() {
             const name = document.getElementById('m-name').value;
+            if (!name) {
+                showToast('Please enter a meal name', 'exclamation-triangle');
+                return;
+            }
             const portions = document.getElementById('m-portions').value;
             const protein = document.getElementById('m-protein').value;
             const ings = [];
@@ -324,30 +476,103 @@
                     totalCals += parseFloat(inputs[2].value || 0);
                 }
             });
-            await fetch(`${API_BASE}/meals`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                body: JSON.stringify({ name, calories: totalCals, protein, portions, ingredients: ings })
+            try {
+                showLoading();
+                await fetch(`${API_BASE}/meals`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                    body: JSON.stringify({ name, calories: totalCals, protein, portions, ingredients: ings })
+                });
+                hideLoading();
+                showToast('Meal Saved');
+                loadMeals();
+            } catch (e) {
+                hideLoading();
+                showToast('Failed to save meal', 'exclamation-triangle');
+                console.error(e);
+            }
+        }
+
+        function filterMealsList() {
+            const query = document.getElementById('mealSearchInput').value.toLowerCase();
+            document.querySelectorAll('#savedMealsList .meal-card').forEach(card => {
+                const name = card.getAttribute('data-name').toLowerCase();
+                card.style.display = name.includes(query) ? 'flex' : 'none';
             });
-            alert('Meal Saved');
-            loadMeals();
         }
 
         async function loadMeals() {
-            const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
-            const data = await res.json();
-            meals = data.meals;
+            try {
+                const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
+                if (!res.ok) throw new Error('Failed to load meals');
+                const data = await res.json();
+                meals = data.meals || [];
             const select = document.getElementById('mealSelect');
             select.innerHTML = '<option value="">Search for a meal...</option>';
             const list = document.getElementById('savedMealsList');
-            list.innerHTML = '<h3>Existing Meals</h3>';
+            list.innerHTML = '<h3 style="margin-top:20px;">Existing Meals</h3>';
             meals.forEach(m => {
-                select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${(m.Calories/m.Portions).toFixed(0)} cal)</option>`;
-                list.innerHTML += `<div class="card"><strong>${m.MealName}</strong> - ${(m.Calories/m.Portions).toFixed(0)} cal/portion</div>`;
+                const perPortion = (m.Calories / m.Portions).toFixed(0);
+                select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
+                
+                const mealCard = document.createElement('div');
+                mealCard.className = 'card meal-card';
+                mealCard.setAttribute('data-name', m.MealName);
+                mealCard.style = 'display:flex; justify-content:space-between; align-items:center; padding:10px; margin-bottom:5px;';
+                mealCard.innerHTML = `
+                    <div>
+                        <strong style="color:var(--accent);">${m.MealName}</strong><br>
+                        <span style="font-size:0.8em; color:var(--sub);">${perPortion} cal/portion (${m.Portions} portions)</span>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="editMeal('${m.MealName}')" style="background:none; border:none; color:var(--sub); cursor:pointer;"><i class="fas fa-edit"></i></button>
+                        <button onclick="deleteMeal('${m.MealName}')" style="background:none; border:none; color:#ff4444; cursor:pointer;"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                list.appendChild(mealCard);
             });
             
-            // Re-bind change event for Select2
-            $('#mealSelect').off('change').on('change', applyMeal);
+                // Re-bind change event for Select2
+                $('#mealSelect').off('change').on('change', applyMeal);
+            } catch (e) {
+                showToast('Failed to load meals', 'exclamation-triangle');
+                console.error(e);
+            }
+        }
+
+        function editMeal(name) {
+            const meal = meals.find(m => m.MealName === name);
+            if (!meal) return;
+            
+            document.getElementById('m-name').value = meal.MealName;
+            document.getElementById('m-portions').value = meal.Portions;
+            document.getElementById('m-protein').value = meal.Protein || 0;
+            
+            const list = document.getElementById('ingredientsList');
+            list.innerHTML = '';
+            
+            if (meal.Ingredients && meal.Ingredients.length > 0) {
+                meal.Ingredients.forEach(ing => {
+                    const div = document.createElement('div');
+                    div.className = 'ing-row';
+                    div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ing.desc || ing.item || ''}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
+                    list.appendChild(div);
+                });
+            } else {
+                addIngredientLine();
+            }
+            
+            document.getElementById('mealsTab').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function deleteMeal(name) {
+            if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+            
+            await fetch(`${API_BASE}/meals?name=${encodeURIComponent(name)}`, {
+                method: 'DELETE',
+                headers: { 'x-api-key': API_KEY }
+            });
+            loadMeals();
         }
 
         function applyMeal() {
@@ -362,7 +587,9 @@
 
         async function submitData() {
             const type = document.getElementById('entryType').value;
+            const selectedDate = document.getElementById('logDate').value;
             let val, pro = 0, note = "", customTime = null;
+            
             if (type === 'FOOD') { 
                 val = document.getElementById('foodCals').value; 
                 pro = document.getElementById('foodPro').value; 
@@ -371,20 +598,54 @@
             }
             else if (type === 'GYM') { val = 1; note = document.getElementById('gymNote').value; }
             else if (type === 'WEIGHT') { val = document.getElementById('weightVal').value; }
+            else if (type === 'ACTIVE') { val = document.getElementById('activeVal').value; }
+            else if (type === 'SLEEP') { val = document.getElementById('sleepVal').value; }
 
-            const res = await fetch(`${API_BASE}/log`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                body: JSON.stringify({ type, value: parseFloat(val), protein: parseFloat(pro || 0), note, time: customTime })
-            });
-            if (res.ok) { alert('Saved!'); document.querySelectorAll('input').forEach(i => i.value = ''); }
+            // Validation
+            if (!val || isNaN(val) || parseFloat(val) < 0) {
+                showToast('Please enter a valid value', 'exclamation-triangle');
+                return;
+            }
+
+            try {
+                showLoading();
+                const res = await fetch(`${API_BASE}/log`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                    body: JSON.stringify({ 
+                        type, 
+                        value: parseFloat(val), 
+                        protein: parseFloat(pro || 0), 
+                        note, 
+                        time: customTime,
+                        date: selectedDate 
+                    })
+                });
+                hideLoading();
+                if (res.ok) { 
+                    showToast('Entry Saved'); 
+                    document.querySelectorAll('.card input').forEach(i => {
+                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
+                    });
+                } else {
+                    showToast('Failed to save entry', 'exclamation-triangle');
+                }
+            } catch (e) {
+                hideLoading();
+                showToast('Network error - please try again', 'exclamation-triangle');
+                console.error(e);
+            }
         }
 
         async function loadDashboard() {
-            const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
-            const data = await res.json();
-            const items = data.items;
-            const baseline = data.baseline;
+            try {
+                showLoading();
+                const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
+                if (!res.ok) throw new Error('Failed to load data');
+                const data = await res.json();
+                const items = data.items;
+                allRawItems = items; // Store for logs view
+                const baseline = data.baseline;
             const today = new Date().toISOString().split('T')[0];
             const uniqueDays = [...new Set(items.map(i => i.PK))].sort().reverse();
             const dayRollup = {};
@@ -480,6 +741,12 @@
                     plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } }
                 } 
             });
+            hideLoading();
+            } catch (e) {
+                hideLoading();
+                showToast('Failed to load dashboard', 'exclamation-triangle');
+                console.error(e);
+            }
         }
         toggleFields();
         // Removed window.onload = loadMeals; as it's now handled by checkAuth
