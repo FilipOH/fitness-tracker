@@ -933,9 +933,16 @@
                 });
                 
                 if (response.ok) {
-                    showToast('Entry deleted', 'check-circle');
-                    await loadData();
+                    // Remove entry from local data immediately
+                    allRawItems = allRawItems.filter(item => !(item.PK === pk && item.SK === sk));
+                    
+                    // Re-render logs table
                     renderDetailedLogs();
+                    
+                    // Refresh dashboard to update stats
+                    loadDashboard();
+                    
+                    showToast('Entry deleted', 'check-circle');
                 } else {
                     showToast('Failed to delete entry', 'exclamation-triangle');
                 }
