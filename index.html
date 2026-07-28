@@ -72,7 +72,15 @@
         .form-row { display: flex; flex-direction: column; margin-bottom: 15px; }
         label { font-size: 0.9em; color: var(--sub); margin-bottom: 5px; }
         input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 16px; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 44px; display: block; margin: 0; min-width: 0; }
-        input[type="date"], input[type="time"] { padding: 10px; } /* Slightly less padding for native controls */
+        input[type="date"], input[type="time"] { 
+            padding: 10px; 
+            /* iOS Safari fix: Force date/time inputs to respect container width */
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            flex: 1 1 auto;
+            -webkit-appearance: listbox; /* Keeps native picker but fixes width */
+        }
         input[type="checkbox"] { min-height: auto; width: auto; display: inline-block; } /* Reset for checkboxes */
         button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
@@ -408,7 +416,7 @@
             <div class="form-row"><label>Weekly Gym Target (sessions)</label><input type="number" id="g-gym"></div>
             <div class="form-row">
                 <label>Effective From <small style="color:var(--sub);">(when do these goals start?)</small></label>
-                <input type="date" id="g-effective-date" style="width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white; font-size: 16px; min-height: 44px;">
+                <input type="date" id="g-effective-date">
             </div>
             <button class="submit" onclick="saveGoals()">Update Goals</button>
         </div>
