@@ -239,25 +239,49 @@
         </div>
         
         <div class="card" style="text-align:center;"><p style="font-size:0.7em; color:var(--sub);">EST. TOTAL LOSS</p><p id="d-loss" style="font-size:1.5em; font-weight:bold; color:var(--accent);">-- kg</p></div>
-        <div class="card" style="padding:5px;"><table><thead><tr><th>Week</th><th>Net</th><th>Goal</th><th>Gym</th></tr></thead><tbody id="weeklyTable"></tbody></table></div>
+        
+        <div class="card" style="padding:5px;">
+            <table><thead><tr><th>Week</th><th>Net</th><th>Goal</th><th>Gym</th></tr></thead><tbody id="weeklyTable"></tbody></table>
+            <div style="margin-top: 10px; text-align: center; display: flex; gap: 10px; justify-content: center; align-items: center;">
+                <button onclick="weekPage--; loadDashboard();" style="background:#444; color:white; border:none; padding:6px 12px; border-radius:5px; font-size:0.8em;">◀ Prev</button>
+                <span id="weekPageIndicator" style="color:var(--sub); font-size:0.8em;">Page 1</span>
+                <button onclick="weekPage++; loadDashboard();" style="background:#444; color:white; border:none; padding:6px 12px; border-radius:5px; font-size:0.8em;">Next ▶</button>
+            </div>
+        </div>
+        
         <div class="chart-container"><canvas id="weightChart"></canvas></div>
+        <div class="chart-container" style="margin-top: 15px;"><canvas id="calorieChart"></canvas></div>
     </div>
 
         <div id="mealsTab" class="tab-content">
-        <h1 style="font-size: 1.4em; color: var(--accent);">Saved Meals</h1>
+        <h1 style="font-size: 1.4em; color: var(--accent);">Saved Items</h1>
+        
+        <div style="display: flex; background: #222; border-radius: 8px; margin-bottom: 15px; padding: 4px;">
+            <button id="btnMealType" onclick="switchMealType('meal')" style="flex:1; background:var(--accent); color:white; border:none; padding:8px; border-radius:6px; font-size:0.8em; font-weight:bold; transition:0.3s;">Multi-Ingredient Meals</button>
+            <button id="btnFoodType" onclick="switchMealType('food')" style="flex:1; background:transparent; color:var(--sub); border:none; padding:8px; border-radius:6px; font-size:0.8em; font-weight:bold; transition:0.3s;">Quick Foods</button>
+        </div>
+        
         <div class="card">
-            <h3>Create New Meal</h3>
-            <div class="form-row"><label>Meal Name</label><input type="text" id="m-name"></div>
-            <div class="form-row"><label>Portions</label><input type="number" id="m-portions" value="1"></div>
-            <div id="ingredientsList">
-                <div class="ing-row"><input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals"></div>
+            <h3 id="createTitle">Create New Meal</h3>
+            <div class="form-row"><label>Name</label><input type="text" id="m-name"></div>
+            
+            <div id="mealFields">
+                <div class="form-row"><label>Portions</label><input type="number" id="m-portions" value="1"></div>
+                <div id="ingredientsList">
+                    <div class="ing-row"><input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals"></div>
+                </div>
+                <button onclick="addIngredientLine()" style="background:#444; color:white; border:none; padding:8px; border-radius:5px; margin-bottom:10px; width:100%; font-size:0.8em;">+ Add Ingredient</button>
             </div>
-            <button onclick="addIngredientLine()" style="background:#444; color:white; border:none; padding:8px; border-radius:5px; margin-bottom:10px; width:100%; font-size:0.8em;">+ Add Ingredient</button>
+            
+            <div id="foodFields" style="display:none;">
+                <div class="form-row"><label>Calories</label><input type="number" id="m-quickcals"></div>
+            </div>
+            
             <div class="form-row"><label>Total Protein (Optional)</label><input type="number" id="m-protein"></div>
-            <button class="submit" onclick="saveMeal()">Save Meal Template</button>
+            <button class="submit" onclick="saveMeal()">Save Item</button>
         </div>
         <div class="form-row" style="margin-top:20px;">
-            <input type="text" id="mealSearchInput" placeholder="🔍 Search existing meals..." onkeyup="filterMealsList()" style="width:100%; padding:12px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:white;">
+            <input type="text" id="mealSearchInput" placeholder="🔍 Search saved items..." onkeyup="filterMealsList()" style="width:100%; padding:12px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:white;">
         </div>
         <div id="savedMealsList"></div>
     </div>
@@ -348,13 +372,17 @@
         const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
         let meals = [];
         let chartInstance = null;
+        let calorieChartInstance = null;
         let goals = { weeklyNet: -3850, weeklyComparison: 'less', protein: 80, sleep: 75, gym: 2 };
         let goalHistory = []; // Historical goals with effectiveDate
         let allRawItems = [];
         let logPage = 1;
         const logPageSize = 25;
+        let weekPage = 1;
+        const weekPageSize = 5;
         let db = null; // IndexedDB instance
         let isSyncing = false;
+        let currentMealType = 'meal'; // 'meal' or 'food'
 
         // ==================== OFFLINE PWA SUPPORT ====================
         
@@ -1025,36 +1053,92 @@
             document.getElementById('ingredientsList').appendChild(div);
         }
 
+        function switchMealType(type) {
+            currentMealType = type;
+            const btnMeal = document.getElementById('btnMealType');
+            const btnFood = document.getElementById('btnFoodType');
+            const mealFields = document.getElementById('mealFields');
+            const foodFields = document.getElementById('foodFields');
+            const title = document.getElementById('createTitle');
+            
+            if (type === 'meal') {
+                btnMeal.style.background = 'var(--accent)';
+                btnMeal.style.color = 'white';
+                btnFood.style.background = 'transparent';
+                btnFood.style.color = 'var(--sub)';
+                mealFields.style.display = 'block';
+                foodFields.style.display = 'none';
+                title.textContent = 'Create New Meal';
+            } else {
+                btnFood.style.background = 'var(--accent)';
+                btnFood.style.color = 'white';
+                btnMeal.style.background = 'transparent';
+                btnMeal.style.color = 'var(--sub)';
+                mealFields.style.display = 'none';
+                foodFields.style.display = 'block';
+                title.textContent = 'Add Quick Food';
+            }
+            loadMeals(); // Refresh the list
+        }
+
         async function saveMeal() {
             const name = document.getElementById('m-name').value;
             if (!name) {
-                showToast('Please enter a meal name', 'exclamation-triangle');
+                showToast('Please enter a name', 'exclamation-triangle');
                 return;
             }
-            const portions = document.getElementById('m-portions').value;
+            
             const protein = document.getElementById('m-protein').value;
-            const ings = [];
             let totalCals = 0;
-            document.querySelectorAll('#ingredientsList .ing-row').forEach(row => {
-                const inputs = row.querySelectorAll('input');
-                if (inputs[0].value) {
-                    ings.push({ desc: inputs[0].value, qty: inputs[1].value, cals: parseFloat(inputs[2].value || 0) });
-                    totalCals += parseFloat(inputs[2].value || 0);
-                }
-            });
+            let portions = 1;
+            let ings = [];
+            let isQuickFood = currentMealType === 'food';
+            
+            if (isQuickFood) {
+                // Quick food - just name, calories, and protein
+                totalCals = parseFloat(document.getElementById('m-quickcals').value || 0);
+                portions = 1;
+            } else {
+                // Multi-ingredient meal
+                portions = document.getElementById('m-portions').value;
+                document.querySelectorAll('#ingredientsList .ing-row').forEach(row => {
+                    const inputs = row.querySelectorAll('input');
+                    if (inputs[0].value) {
+                        ings.push({ desc: inputs[0].value, qty: inputs[1].value, cals: parseFloat(inputs[2].value || 0) });
+                        totalCals += parseFloat(inputs[2].value || 0);
+                    }
+                });
+            }
+            
             try {
                 showLoading();
                 await fetch(`${API_BASE}/meals`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                    body: JSON.stringify({ name, calories: totalCals, protein, portions, ingredients: ings })
+                    body: JSON.stringify({ 
+                        name, 
+                        calories: totalCals, 
+                        protein, 
+                        portions, 
+                        ingredients: ings,
+                        isQuickFood: isQuickFood
+                    })
                 });
                 hideLoading();
-                showToast('Meal Saved');
+                showToast(isQuickFood ? 'Quick Food Saved' : 'Meal Saved');
+                // Clear form
+                document.getElementById('m-name').value = '';
+                document.getElementById('m-protein').value = '';
+                if (isQuickFood) {
+                    document.getElementById('m-quickcals').value = '';
+                } else {
+                    document.getElementById('m-portions').value = '1';
+                    document.getElementById('ingredientsList').innerHTML = '<div class=\"ing-row\"><input type=\"text\" placeholder=\"Ingredient\"><input type=\"text\" placeholder=\"Qty\"><input type=\"number\" placeholder=\"Cals\" class=\"ing-cals\"></div>';
+                }
                 loadMeals();
             } catch (e) {
                 hideLoading();
-                showToast('Failed to save meal', 'exclamation-triangle');
+                showToast('Failed to save', 'exclamation-triangle');
                 console.error(e);
             }
         }
@@ -1073,30 +1157,46 @@
                 if (!res.ok) throw new Error('Failed to load meals');
                 const data = await res.json();
                 meals = data.meals || [];
+                
+            // Filter based on current view
+            const filteredMeals = meals.filter(m => {
+                const isQuick = m.isQuickFood || false;
+                return currentMealType === 'food' ? isQuick : !isQuick;
+            });
+            
             const select = document.getElementById('mealSelect');
             select.innerHTML = '<option value="">Search for a meal...</option>';
             const list = document.getElementById('savedMealsList');
-            list.innerHTML = '<h3 style="margin-top:20px;">Existing Meals</h3>';
+            list.innerHTML = `<h3 style="margin-top:20px;">${currentMealType === 'food' ? 'Quick Foods' : 'Saved Meals'}</h3>`;
             
-            if (meals.length === 0) {
-                list.innerHTML += '<p style="text-align:center; color:var(--sub); padding:20px;">No saved meals yet. Create one above!</p>';
+            if (filteredMeals.length === 0) {
+                list.innerHTML += `<p style="text-align:center; color:var(--sub); padding:20px;">No ${currentMealType === 'food' ? 'quick foods' : 'saved meals'} yet. Create one above!</p>`;
                 return;
             }
-            meals.forEach(m => {
+            
+            filteredMeals.forEach(m => {
                 const perPortion = (m.Calories / m.Portions).toFixed(0);
-                select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
+                
+                // Only add non-quick foods to the select dropdown for meal selection
+                if (!m.isQuickFood) {
+                    select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
+                }
                 
                 const mealCard = document.createElement('div');
                 mealCard.className = 'card meal-card';
                 mealCard.setAttribute('data-name', m.MealName);
                 mealCard.style = 'display:flex; justify-content:space-between; align-items:center; padding:10px; margin-bottom:5px;';
+                
+                const subtitle = m.isQuickFood 
+                    ? `<span style="font-size:0.8em; color:var(--sub);">${m.Calories} cal</span>`
+                    : `<span style="font-size:0.8em; color:var(--sub);">${perPortion} cal/portion (${m.Portions} portions)</span>`;
+                
                 mealCard.innerHTML = `
                     <div>
                         <strong style="color:var(--accent);">${m.MealName}</strong><br>
-                        <span style="font-size:0.8em; color:var(--sub);">${perPortion} cal/portion (${m.Portions} portions)</span>
+                        ${subtitle}
                     </div>
                     <div style="display:flex; gap:10px;">
-                        <button onclick="editMeal('${m.MealName}')" style="background:none; border:none; color:var(--sub); cursor:pointer;"><i class="fas fa-edit"></i></button>
                         <button onclick="deleteMeal('${m.MealName}')" style="background:none; border:none; color:#ff4444; cursor:pointer;"><i class="fas fa-trash"></i></button>
                     </div>
                 `;
@@ -1110,7 +1210,7 @@
                     if ($('#mealSelect').val()) applyMeal();
                 });
             } catch (e) {
-                showToast('Failed to load meals', 'exclamation-triangle');
+                showToast('Failed to load items', 'exclamation-triangle');
                 console.error(e);
             }
         }
@@ -1444,30 +1544,46 @@
                     console.error(`Error processing date ${d}:`, e);
                 }
             });
+            
+            // Render weekly table with pagination
             const weeklyTable = document.getElementById('weeklyTable'); 
             weeklyTable.innerHTML = '';
             const weeks = Object.keys(weeklyData).sort().reverse();
+            
             if (weeks.length === 0) {
                 weeklyTable.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--sub); padding:20px;">No weekly data yet. Start logging!</td></tr>';
-                return;
+                document.getElementById('weekPageIndicator').textContent = 'Page 1';
+            } else {
+                // Pagination logic
+                const totalPages = Math.ceil(weeks.length / weekPageSize);
+                if (weekPage < 1) weekPage = 1;
+                if (weekPage > totalPages) weekPage = totalPages;
+                
+                const start = (weekPage - 1) * weekPageSize;
+                const end = start + weekPageSize;
+                const pageWeeks = weeks.slice(start, end);
+                
+                pageWeeks.forEach(w => {
+                    const weekNet = weeklyData[w].net;
+                    const weekGoals = getGoalsForWeek(w); // Use historical goals for this week
+                    
+                    let goalMet = false;
+                    if (weekGoals.weeklyComparison === 'less') {
+                        goalMet = weekNet <= weekGoals.weeklyNet;
+                    } else {
+                        goalMet = weekNet >= weekGoals.weeklyNet;
+                    }
+                    const gymMet = weeklyData[w].gym >= weekGoals.gym;
+                    
+                    const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
+                    const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
+                    
+                    weeklyTable.innerHTML += `<tr><td>${formatDateDDMM(w)}</td><td>${weekNet.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
+                });
+                
+                document.getElementById('weekPageIndicator').textContent = `Page ${weekPage} of ${totalPages}`;
             }
-            weeks.forEach(w => {
-                const weekNet = weeklyData[w].net;
-                const weekGoals = getGoalsForWeek(w); // Use historical goals for this week
-                
-                let goalMet = false;
-                if (weekGoals.weeklyComparison === 'less') {
-                    goalMet = weekNet <= weekGoals.weeklyNet;
-                } else {
-                    goalMet = weekNet >= weekGoals.weeklyNet;
-                }
-                const gymMet = weeklyData[w].gym >= weekGoals.gym;
-                
-                const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
-                const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
-                
-                weeklyTable.innerHTML += `<tr><td>${formatDateDDMM(w)}</td><td>${weekNet.toFixed(0)}</td><td>${goalIcon}</td><td>${gymIcon}</td></tr>`;
-            });
+            
             const weights = items.filter(i => i.Type === 'WEIGHT').sort((a,b) => a.PK.localeCompare(b.PK));
             
             // Calculate 4-day rolling average
@@ -1492,6 +1608,53 @@
                     plugins: { legend: { labels: { color: '#888', font: { size: 12 } } } }
                 } 
             });
+            
+            // Calorie Net Chart
+            const calorieDays = uniqueDays.slice(0, 30).reverse(); // Last 30 days
+            const calorieNets = calorieDays.map(d => dayRollup[d].net);
+            
+            if (calorieChartInstance) calorieChartInstance.destroy();
+            calorieChartInstance = new Chart(document.getElementById('calorieChart'), {
+                type: 'line',
+                data: {
+                    labels: calorieDays.map(d => formatDateDDMM(d)),
+                    datasets: [{
+                        label: 'Daily Net Calories',
+                        data: calorieNets,
+                        borderColor: '#00adb5',
+                        backgroundColor: 'rgba(0, 173, 181, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            grid: { color: '#333' },
+                            ticks: { color: '#888' }
+                        },
+                        x: {
+                            grid: { color: '#333' },
+                            ticks: { color: '#888', maxRotation: 45, minRotation: 45 }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#888', font: { size: 12 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y.toFixed(0) + ' cal';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
             hideLoading();
             } catch (e) {
                 hideLoading();
