@@ -89,6 +89,12 @@ Resources:
             ApiId: !Ref MyApi
             Path: /meals
             Method: DELETE
+        LogDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /log
+            Method: DELETE
         ConfigPost:
           Type: HttpApi
           Properties:
@@ -110,6 +116,7 @@ Resources:
         AllowMethods:
           - GET
           - POST
+          - DELETE
           - OPTIONS
         AllowHeaders:
           - Content-Type
