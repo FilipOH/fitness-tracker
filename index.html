@@ -102,11 +102,12 @@
 <body>
     <div id="toast-container" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
     
-    <!-- Network Status Indicator -->
-    <div id="networkStatus" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px;">
+    <!-- Network Status Indicator (Clickable to sync) -->
+    <div id="networkStatus" onclick="manualSync()" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px; cursor:pointer; transition:background 0.2s; user-select:none;" onmouseenter="this.style.background='rgba(50,50,50,0.95)'" onmouseleave="this.style.background='rgba(30,30,30,0.95)'">
         <div id="statusDot" style="width:8px; height:8px; border-radius:50%; background:var(--green);"></div>
         <span id="statusText">Online</span>
         <span id="pendingCount" style="background:var(--accent); padding:2px 6px; border-radius:4px; font-size:0.8em; display:none;">0</span>
+        <span id="syncHint" style="font-size:0.75em; color:var(--sub); display:none;">· Tap to sync</span>
     </div>
     
     <div id="loadingOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:none; align-items:center; justify-content:center;">
@@ -555,16 +556,61 @@
             const indicator = document.getElementById('networkStatus');
             const dot = document.getElementById('statusDot');
             const text = document.getElementById('statusText');
+            const hint = document.getElementById('syncHint');
             
             if (online) {
                 dot.style.background = 'var(--green)';
                 text.textContent = 'Online';
+                hint.style.display = 'none';
                 setTimeout(() => indicator.style.display = 'none', 3000);
                 syncPendingMutations(); // Auto-sync on reconnect
             } else {
                 dot.style.background = 'var(--red)';
                 text.textContent = 'Offline';
+                hint.style.display = 'inline';
                 indicator.style.display = 'flex';
+            }
+        }
+
+        // Manual sync trigger from clicking network status
+        async function manualSync() {
+            const text = document.getElementById('statusText');
+            const hint = document.getElementById('syncHint');
+            const indicator = document.getElementById('networkStatus');
+            const originalText = text.textContent;
+            
+            // Check if already syncing
+            if (isSyncing) {
+                showToast('Sync already in progress', 'clock');
+                return;
+            }
+            
+            // Check if there are pending items
+            const pending = await getPendingMutations();
+            if (pending.length === 0) {
+                showToast('Nothing to sync', 'check-circle');
+                return;
+            }
+            
+            // Show syncing state
+            text.textContent = 'Syncing...';
+            hint.style.display = 'none';
+            
+            try {
+                await syncPendingMutations();
+                // If sync successful and no items left, hide indicator
+                const remaining = await getPendingMutations();
+                if (remaining.length === 0) {
+                    setTimeout(() => indicator.style.display = 'none', 2000);
+                }
+            } catch (e) {
+                showToast('Sync failed - check connection', 'exclamation-triangle');
+            } finally {
+                // Restore state
+                text.textContent = originalText;
+                if (!navigator.onLine) {
+                    hint.style.display = 'inline';
+                }
             }
         }
 
