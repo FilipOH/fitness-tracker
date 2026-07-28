@@ -134,16 +134,41 @@
 
     <div id="authOverlay">
         <h2 style="color: var(--accent);">Locked</h2>
+        
+        <!-- Biometric Auth -->
         <div id="biometricSection" style="display: none; margin-bottom: 20px;">
             <i class="fas fa-fingerprint" style="font-size: 3em; color: var(--accent); margin-bottom: 15px;"></i>
             <p style="font-size: 0.9em; color: var(--sub); margin-bottom: 15px;">Use Face ID or Touch ID</p>
             <button class="submit" onclick="tryBiometricAuth()" style="width: 200px; margin-bottom: 10px;">Authenticate</button>
             <button onclick="showPasswordAuth()" style="background: none; border: none; color: var(--sub); cursor: pointer; font-size: 0.9em;">Use Password Instead</button>
         </div>
+        
+        <!-- Password Auth -->
         <div id="passwordSection" style="display: none;">
-            <input type="password" id="passInput" placeholder="Password" style="width: 200px; margin-bottom: 20px; text-align: center;">
-            <button class="submit" onclick="checkAuth()" style="width: 200px;">Unlock</button>
+            <input type="password" id="passInput" placeholder="Password" onkeypress="if(event.key==='Enter') checkAuth()" style="width: 200px; margin-bottom: 20px; text-align: center;">
+            <button class="submit" onclick="checkAuth()" style="width: 200px;">Next</button>
         </div>
+        
+        <!-- MFA Code Input -->
+        <div id="mfaSection" style="display: none;">
+            <i class="fas fa-mobile-alt" style="font-size: 2.5em; color: var(--accent); margin-bottom: 15px;"></i>
+            <p style="font-size: 0.9em; color: var(--sub); margin-bottom: 15px;">Enter code from authenticator app</p>
+            <input type="text" id="mfaInput" placeholder="6-digit code" maxlength="6" pattern="[0-9]{6}" onkeypress="if(event.key==='Enter') verifyMFA()" style="width: 200px; margin-bottom: 15px; text-align: center; font-size: 1.2em; letter-spacing: 0.3em;">
+            <button class="submit" onclick="verifyMFA()" style="width: 200px; margin-bottom: 10px;">Verify</button>
+            <button onclick="showPasswordAuth(); document.getElementById('passInput').value = ''" style="background: none; border: none; color: var(--sub); cursor: pointer; font-size: 0.9em;">Back to Password</button>
+        </div>
+        
+        <!-- Trust Device Option -->
+        <div id="trustDeviceSection" style="display: none;">
+            <i class="fas fa-check-circle" style="font-size: 3em; color: var(--green); margin-bottom: 15px;"></i>
+            <p style="font-size: 0.9em; color: var(--sub); margin-bottom: 15px;">Authentication successful!</p>
+            <label style="display: block; margin-bottom: 20px; cursor: pointer;">
+                <input type="checkbox" id="trustDeviceCheck" style="margin-right: 10px;">
+                <span style="font-size: 0.9em;">Trust this device (90 days)</span>
+            </label>
+            <button class="submit" onclick="completeTrustFlow()" style="width: 200px;">Continue</button>
+        </div>
+        
         <p id="authError" style="color: var(--red); font-size: 0.8em; margin-top: 10px;"></p>
     </div>
 
@@ -893,6 +918,9 @@
         function showPasswordAuth() {
             document.getElementById('biometricSection').style.display = 'none';
             document.getElementById('passwordSection').style.display = 'block';
+            document.getElementById('mfaSection').style.display = 'none';
+            document.getElementById('trustDeviceSection').style.display = 'none';
+            document.getElementById('authError').innerText = '';
             document.getElementById('passInput').focus();
         }
         
@@ -900,6 +928,177 @@
         function showBiometricAuth() {
             document.getElementById('passwordSection').style.display = 'none';
             document.getElementById('biometricSection').style.display = 'block';
+            document.getElementById('mfaSection').style.display = 'none';
+            document.getElementById('trustDeviceSection').style.display = 'none';
+            document.getElementById('authError').innerText = '';
+        }
+        
+        // UI helper to show MFA section
+        function showMFASection() {
+            document.getElementById('passwordSection').style.display = 'none';
+            document.getElementById('biometricSection').style.display = 'none';
+            document.getElementById('mfaSection').style.display = 'block';
+            document.getElementById('trustDeviceSection').style.display = 'none';
+            document.getElementById('authError').innerText = '';
+            document.getElementById('mfaInput').value = '';
+            document.getElementById('mfaInput').focus();
+        }
+        
+        // UI helper to show trust device section
+        function showTrustDeviceSection() {
+            document.getElementById('passwordSection').style.display = 'none';
+            document.getElementById('biometricSection').style.display = 'none';
+            document.getElementById('mfaSection').style.display = 'none';
+            document.getElementById('trustDeviceSection').style.display = 'block';
+            document.getElementById('authError').innerText = '';
+        }
+        
+        // Generate device fingerprint (browser + hardware characteristics)
+        function getDeviceFingerprint() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillText('fingerprint', 2, 2);
+            const canvasData = canvas.toDataURL();
+            
+            const fingerprint = [
+                navigator.userAgent,
+                navigator.language,
+                screen.colorDepth,
+                screen.width + 'x' + screen.height,
+                new Date().getTimezoneOffset(),
+                canvasData,
+                navigator.hardwareConcurrency || 0,
+                navigator.deviceMemory || 0
+            ].join('|');
+            
+            // Simple hash function
+            let hash = 0;
+            for (let i = 0; i < fingerprint.length; i++) {
+                const char = fingerprint.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32bit integer
+            }
+            return 'dev_' + Math.abs(hash).toString(36);
+        }
+        
+        // Check if device is trusted
+        async function isDeviceTrusted() {
+            try {
+                const deviceFingerprint = getDeviceFingerprint();
+                const deviceToken = localStorage.getItem('cal_device_token');
+                
+                if (!deviceToken) return false;
+                
+                const res = await fetch(`${API_BASE}/trust-device?deviceFingerprint=${encodeURIComponent(deviceFingerprint)}&deviceToken=${encodeURIComponent(deviceToken)}`);
+                const data = await res.json();
+                
+                if (data.trusted) {
+                    return true;
+                } else {
+                    // Token invalid or expired, clear it
+                    localStorage.removeItem('cal_device_token');
+                    return false;
+                }
+            } catch (e) {
+                console.error('Error checking device trust:', e);
+                return false;
+            }
+        }
+        
+        // Trust this device (get device token from server)
+        async function trustDevice() {
+            try {
+                const deviceFingerprint = getDeviceFingerprint();
+                
+                const res = await fetch(`${API_BASE}/trust-device`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': API_KEY
+                    },
+                    body: JSON.stringify({ deviceFingerprint })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    localStorage.setItem('cal_device_token', data.deviceToken);
+                    return true;
+                } else {
+                    console.error('Failed to trust device:', data.error);
+                    return false;
+                }
+            } catch (e) {
+                console.error('Error trusting device:', e);
+                return false;
+            }
+        }
+        
+        // Verify MFA code
+        async function verifyMFA() {
+            const code = document.getElementById('mfaInput').value.trim();
+            const errorEl = document.getElementById('authError');
+            
+            if (code.length !== 6 || !/^\d{6}$/.test(code)) {
+                errorEl.innerText = 'Please enter a 6-digit code';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/verify-totp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    // MFA successful - show trust device option
+                    showTrustDeviceSection();
+                } else {
+                    errorEl.innerText = 'Invalid code. Please try again.';
+                    document.getElementById('mfaInput').value = '';
+                    document.getElementById('mfaInput').focus();
+                }
+            } catch (e) {
+                errorEl.innerText = 'Error verifying code';
+                console.error('MFA verification error:', e);
+            }
+        }
+        
+        // Complete trust flow and grant access
+        async function completeTrustFlow() {
+            const trustCheckbox = document.getElementById('trustDeviceCheck');
+            
+            // If user wants to trust device, request device token
+            if (trustCheckbox.checked) {
+                await trustDevice();
+            }
+            
+            // Grant access
+            document.getElementById('authOverlay').style.display = 'none';
+            document.getElementById('app').classList.add('authenticated');
+            generateAuthToken();
+            loadMeals();
+            fetchGoals();
+            
+            if (navigator.onLine) {
+                syncPendingMutations();
+            }
+            
+            // If device is trusted and biometric available, offer to enable it
+            if (trustCheckbox.checked && isBiometricAvailable() && !isBiometricRegistered()) {
+                setTimeout(() => {
+                    if (confirm('Enable Face ID or Touch ID for even faster login?')) {
+                        registerBiometric();
+                    }
+                }, 500);
+            }
+            
+            showToast('Logged in successfully', 'check');
         }
         
         // Try biometric auth (called from UI button)
@@ -1157,27 +1356,34 @@
                 // This is a simple S3-native way to do "password protection" without a backend
                 const res = await fetch(`auth/${pass}.json`);
                 if (res.ok) {
-                    document.getElementById('authOverlay').style.display = 'none';
-                    document.getElementById('app').classList.add('authenticated');
+                    // Password correct - check if device is trusted
+                    const trusted = await isDeviceTrusted();
                     
-                    // Generate auth token with 24h expiry (stored in localStorage)
-                    generateAuthToken();
-                    
-                    loadMeals(); // Initial load only after auth
-                    fetchGoals();
-                    
-                    // Sync any pending offline mutations
-                    if (navigator.onLine) {
-                        syncPendingMutations();
-                    }
-                    
-                    // Offer to set up biometric if not already registered
-                    if (isBiometricAvailable() && !isBiometricRegistered()) {
-                        setTimeout(() => {
-                            if (confirm('Enable Face ID or Touch ID for faster login next time?')) {
-                                registerBiometric();
-                            }
-                        }, 500);
+                    if (trusted) {
+                        // Trusted device - grant access immediately (no MFA needed)
+                        document.getElementById('authOverlay').style.display = 'none';
+                        document.getElementById('app').classList.add('authenticated');
+                        generateAuthToken();
+                        loadMeals();
+                        fetchGoals();
+                        
+                        if (navigator.onLine) {
+                            syncPendingMutations();
+                        }
+                        
+                        // Offer biometric if not registered
+                        if (isBiometricAvailable() && !isBiometricRegistered()) {
+                            setTimeout(() => {
+                                if (confirm('Enable Face ID or Touch ID for even faster login?')) {
+                                    registerBiometric();
+                                }
+                            }, 500);
+                        }
+                        
+                        showToast('Logged in successfully', 'check');
+                    } else {
+                        // Untrusted device - require MFA
+                        showMFASection();
                     }
                 } else {
                     errorEl.innerText = "Incorrect Password";
@@ -1214,31 +1420,38 @@
                     syncPendingMutations();
                 }
             } else {
-                // Token expired or not present - show auth
-                // Try biometric first if registered, otherwise show password
-                if (isBiometricRegistered() && isBiometricAvailable()) {
-                    showBiometricAuth();
-                    // Auto-trigger biometric prompt after a short delay
-                    setTimeout(async () => {
-                        const success = await authenticateBiometric();
-                        if (success) {
-                            // Biometric auth successful
-                            document.getElementById('authOverlay').style.display = 'none';
-                            document.getElementById('app').classList.add('authenticated');
-                            generateAuthToken();
-                            loadMeals();
-                            fetchGoals();
-                            
-                            if (navigator.onLine) {
-                                syncPendingMutations();
+                // Token expired or not present - check device trust first
+                const trusted = await isDeviceTrusted();
+                
+                if (trusted) {
+                    // Device is trusted - try biometric first if available, otherwise password (no MFA needed)
+                    if (isBiometricRegistered() && isBiometricAvailable()) {
+                        showBiometricAuth();
+                        // Auto-trigger biometric prompt after a short delay
+                        setTimeout(async () => {
+                            const success = await authenticateBiometric();
+                            if (success) {
+                                // Biometric auth successful
+                                document.getElementById('authOverlay').style.display = 'none';
+                                document.getElementById('app').classList.add('authenticated');
+                                generateAuthToken();
+                                loadMeals();
+                                fetchGoals();
+                                
+                                if (navigator.onLine) {
+                                    syncPendingMutations();
+                                }
+                            } else {
+                                // Biometric failed - show password option (no MFA for trusted device)
+                                showPasswordAuth();
                             }
-                        } else {
-                            // Biometric failed - show password option
-                            showPasswordAuth();
-                        }
-                    }, 300);
+                        }, 300);
+                    } else {
+                        // No biometric registered on trusted device - show password only (no MFA)
+                        showPasswordAuth();
+                    }
                 } else {
-                    // No biometric registered - show password input
+                    // Device not trusted - require full auth flow (password + MFA)
                     showPasswordAuth();
                 }
             }

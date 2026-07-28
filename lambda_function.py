@@ -1,9 +1,11 @@
 import json
 import boto3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
+import pyotp
+import secrets
 
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
@@ -28,6 +30,14 @@ def lambda_handler(event, context):
         }
     
     path = event.get('requestContext', {}).get('http', {}).get('path')
+    
+    # Handle Auth/MFA API
+    if path == '/verify-totp':
+        if method == 'POST': return handle_verify_totp(event)
+    
+    if path == '/trust-device':
+        if method == 'POST': return handle_trust_device(event, API_KEY)
+        if method == 'GET': return handle_check_device_trust(event)
     
     # Handle Meals API
     if path == '/meals':
@@ -255,4 +265,112 @@ def handle_delete_log(event, api_key):
         return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Deleted'}
     except Exception as e:
         return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
+
+def handle_verify_totp(event):
+    """Verify TOTP code - no API key required (public endpoint)"""
+    try:
+        body = json.loads(event.get('body', '{}'))
+        totp_code = body.get('code')
+        
+        if not totp_code:
+            return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Code required'})}
+        
+        # Get TOTP secret from environment (set by user manually)
+        totp_secret = os.environ.get('TOTP_SECRET')
+        if not totp_secret:
+            return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'TOTP not configured'})}
+        
+        # Verify the code (allow 1 period before/after for clock drift)
+        totp = pyotp.TOTP(totp_secret)
+        is_valid = totp.verify(totp_code, valid_window=1)
+        
+        if is_valid:
+            return {
+                'statusCode': 200,
+                'headers': {'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'success': True, 'message': 'TOTP verified'})
+            }
+        else:
+            return {
+                'statusCode': 401,
+                'headers': {'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'success': False, 'error': 'Invalid code'})
+            }
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': str(e)})}
+
+def handle_trust_device(event, api_key):
+    """Issue a trusted device token after successful auth"""
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    if headers.get('x-api-key') != api_key:
+        return {'statusCode': 403, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Unauthorized'})}
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+        device_fingerprint = body.get('deviceFingerprint')
+        
+        if not device_fingerprint:
+            return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Device fingerprint required'})}
+        
+        # Generate a secure token for this device
+        device_token = secrets.token_urlsafe(32)
+        expiry = (datetime.now() + timedelta(days=90)).isoformat()
+        
+        # Store in DynamoDB
+        item = {
+            'PK': 'DEVICE',
+            'SK': device_fingerprint,
+            'Token': device_token,
+            'ExpiresAt': expiry,
+            'CreatedAt': datetime.now().isoformat()
+        }
+        table.put_item(Item=item)
+        
+        return {
+            'statusCode': 200,
+            'headers': {'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({
+                'success': True,
+                'deviceToken': device_token,
+                'expiresAt': expiry
+            })
+        }
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': str(e)})}
+
+def handle_check_device_trust(event):
+    """Check if a device token is valid (no API key needed - token itself is proof)"""
+    try:
+        params = event.get('queryStringParameters', {}) or {}
+        device_fingerprint = params.get('deviceFingerprint')
+        device_token = params.get('deviceToken')
+        
+        if not device_fingerprint or not device_token:
+            return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'trusted': False})}
+        
+        # Check DynamoDB
+        response = table.get_item(Key={'PK': 'DEVICE', 'SK': device_fingerprint})
+        item = response.get('Item')
+        
+        if not item:
+            return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'trusted': False})}
+        
+        # Verify token matches and hasn't expired
+        stored_token = item.get('Token')
+        expiry = item.get('ExpiresAt')
+        
+        if stored_token != device_token:
+            return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'trusted': False})}
+        
+        if expiry and datetime.fromisoformat(expiry) < datetime.now():
+            return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'trusted': False, 'reason': 'expired'})}
+        
+        return {
+            'statusCode': 200,
+            'headers': {'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'trusted': True, 'expiresAt': expiry})
+        }
+    except Exception as e:
+        return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': str(e)})}
+
 

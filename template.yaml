@@ -15,6 +15,7 @@ Globals:
         PROTEIN_GOAL: "80"
         GYM_GOAL: "2"
         MEALS_TABLE: !Ref SavedMealsTable
+        TOTP_SECRET: "JBSWY3DPEHPK3PXP"
 
 Resources:
   # 1. DynamoDB Table
@@ -107,8 +108,26 @@ Resources:
             ApiId: !Ref MyApi
             Path: /config
             Method: GET
+        VerifyTotp:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /verify-totp
+            Method: POST
+        TrustDevicePost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /trust-device
+            Method: POST
+        TrustDeviceGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /trust-device
+            Method: GET
 
-  # 1c. Explicit HttpApi with CORS
+  # 1c. Explicit HttpApi with CORS and Rate Limiting
   MyApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -123,6 +142,9 @@ Resources:
           - x-api-key
         AllowOrigins:
           - "*"
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
 
   # 3. S3 Bucket for Dashboard
   DashboardBucket:
@@ -130,14 +152,85 @@ Resources:
     Properties:
       BucketName: !Sub "calorie-dashboard-${AWS::AccountId}"
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
-      WebsiteConfiguration:
-        IndexDocument: index.html
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
 
-  # 4. S3 Bucket Policy for Web Access
+  # 4. CloudFront Function for Security Headers
+  SecurityHeadersFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-SecurityHeaders"
+      AutoPublish: true
+      FunctionCode: |
+        function handler(event) {
+          var response = event.response;
+          var headers = response.headers;
+          
+          headers['strict-transport-security'] = { value: 'max-age=31536000; includeSubDomains; preload' };
+          headers['x-content-type-options'] = { value: 'nosniff' };
+          headers['x-frame-options'] = { value: 'DENY' };
+          headers['x-xss-protection'] = { value: '1; mode=block' };
+          headers['referrer-policy'] = { value: 'strict-origin-when-cross-origin' };
+          headers['permissions-policy'] = { value: 'geolocation=(), microphone=(), camera=()' };
+          headers['content-security-policy'] = { value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data:; font-src 'self' https://cdnjs.cloudflare.com data:; connect-src 'self' https://*.execute-api.eu-west-2.amazonaws.com; frame-ancestors 'none'" };
+          
+          return response;
+        }
+      FunctionConfig:
+        Comment: "Adds security headers to responses"
+        Runtime: cloudfront-js-2.0
+
+  # 5. CloudFront Origin Access Control
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-OAC"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # 6. CloudFront Distribution (HTTPS)
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+          DefaultTTL: 86400
+          MinTTL: 0
+          MaxTTL: 31536000
+          FunctionAssociations:
+            - EventType: viewer-response
+              FunctionARN: !GetAtt SecurityHeadersFunction.FunctionMetadata.FunctionARN
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  # 7. S3 Bucket Policy for CloudFront Access
   DashboardBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -146,14 +239,21 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
-            Principal: "*"
+            Principal:
+              Service: cloudfront.amazonaws.com
             Action: "s3:GetObject"
             Resource: !Sub "arn:aws:s3:::${DashboardBucket}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
 Outputs:
   ApiUrl:
     Description: "API Endpoint"
     Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com"
   DashboardUrl:
-    Description: "Dashboard URL"
-    Value: !GetAtt DashboardBucket.WebsiteURL
+    Description: "Dashboard URL (HTTPS via CloudFront)"
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+  CloudFrontDomain:
+    Description: "CloudFront Domain Name"
+    Value: !GetAtt CloudFrontDistribution.DomainName

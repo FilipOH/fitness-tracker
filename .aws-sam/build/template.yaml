@@ -16,6 +16,7 @@ Globals:
         GYM_GOAL: '2'
         MEALS_TABLE:
           Ref: SavedMealsTable
+        TOTP_SECRET: JBSWY3DPEHPK3PXP
 Resources:
   CalorieTrackerTable:
     Type: AWS::DynamoDB::Table
@@ -112,6 +113,27 @@ Resources:
               Ref: MyApi
             Path: /config
             Method: GET
+        VerifyTotp:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: MyApi
+            Path: /verify-totp
+            Method: POST
+        TrustDevicePost:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: MyApi
+            Path: /trust-device
+            Method: POST
+        TrustDeviceGet:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: MyApi
+            Path: /trust-device
+            Method: GET
     Metadata:
       SamResourceId: TrackerFunction
   MyApi:
@@ -128,18 +150,92 @@ Resources:
         - x-api-key
         AllowOrigins:
         - '*'
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
   DashboardBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName:
         Fn::Sub: calorie-dashboard-${AWS::AccountId}
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
-      WebsiteConfiguration:
-        IndexDocument: index.html
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  SecurityHeadersFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name:
+        Fn::Sub: ${AWS::StackName}-SecurityHeaders
+      AutoPublish: true
+      FunctionCode: "function handler(event) {\n  var response = event.response;\n\
+        \  var headers = response.headers;\n  \n  headers['strict-transport-security']\
+        \ = { value: 'max-age=31536000; includeSubDomains; preload' };\n  headers['x-content-type-options']\
+        \ = { value: 'nosniff' };\n  headers['x-frame-options'] = { value: 'DENY'\
+        \ };\n  headers['x-xss-protection'] = { value: '1; mode=block' };\n  headers['referrer-policy']\
+        \ = { value: 'strict-origin-when-cross-origin' };\n  headers['permissions-policy']\
+        \ = { value: 'geolocation=(), microphone=(), camera=()' };\n  headers['content-security-policy']\
+        \ = { value: \"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net\
+        \ https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;\
+        \ img-src 'self' data:; font-src 'self' https://cdnjs.cloudflare.com data:;\
+        \ connect-src 'self' https://*.execute-api.eu-west-2.amazonaws.com; frame-ancestors\
+        \ 'none'\" };\n  \n  return response;\n}\n"
+      FunctionConfig:
+        Comment: Adds security headers to responses
+        Runtime: cloudfront-js-2.0
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name:
+          Fn::Sub: ${AWS::StackName}-OAC
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+        - Id: S3Origin
+          DomainName:
+            Fn::GetAtt:
+            - DashboardBucket
+            - RegionalDomainName
+          OriginAccessControlId:
+            Ref: CloudFrontOriginAccessControl
+          S3OriginConfig:
+            OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+          CachedMethods:
+          - GET
+          - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+          DefaultTTL: 86400
+          MinTTL: 0
+          MaxTTL: 31536000
+          FunctionAssociations:
+          - EventType: viewer-response
+            FunctionARN:
+              Fn::GetAtt:
+              - SecurityHeadersFunction
+              - FunctionMetadata.FunctionARN
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
   DashboardBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -149,18 +245,27 @@ Resources:
         Version: '2012-10-17'
         Statement:
         - Effect: Allow
-          Principal: '*'
+          Principal:
+            Service: cloudfront.amazonaws.com
           Action: s3:GetObject
           Resource:
             Fn::Sub: arn:aws:s3:::${DashboardBucket}/*
+          Condition:
+            StringEquals:
+              AWS:SourceArn:
+                Fn::Sub: arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
 Outputs:
   ApiUrl:
     Description: API Endpoint
     Value:
       Fn::Sub: https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com
   DashboardUrl:
-    Description: Dashboard URL
+    Description: Dashboard URL (HTTPS via CloudFront)
+    Value:
+      Fn::Sub: https://${CloudFrontDistribution.DomainName}
+  CloudFrontDomain:
+    Description: CloudFront Domain Name
     Value:
       Fn::GetAtt:
-      - DashboardBucket
-      - WebsiteURL
+      - CloudFrontDistribution
+      - DomainName
