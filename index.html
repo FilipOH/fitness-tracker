@@ -22,8 +22,9 @@
         .icon-success { color: var(--green); }
         .icon-fail { color: var(--red); opacity: 0.5; }
         /* Select2 Dark Theme Overrides */
-        .select2-container--default .select2-selection--single { background-color: #333; border: 1px solid #444; height: 45px; border-radius: 8px; }
-        .select2-container--default .select2-selection--single .select2-selection__rendered { color: white; line-height: 45px; }
+        .select2-container--default .select2-selection--single { background-color: #333; border: 1px solid #444; min-height: 44px; border-radius: 8px; }
+        .select2-container--default .select2-selection--single .select2-selection__rendered { color: white; line-height: 44px; font-size: 16px; }
+        .select2-container { width: 100% !important; box-sizing: border-box; }
         .select2-dropdown { background-color: #333; border: 1px solid #444; color: white; }
         .select2-search__field { background-color: #222 !important; color: white !important; border: 1px solid #444 !important; }
         .select2-results__option--highlighted[aria-selected] { background-color: var(--accent) !important; }
@@ -56,8 +57,8 @@
         .card.stat p { margin: 5px 0 0; font-size: 1.1em; font-weight: bold; }
         .form-row { display: flex; flex-direction: column; margin-bottom: 15px; }
         label { font-size: 0.9em; color: var(--sub); margin-bottom: 5px; }
-        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 1em; width: 100%; box-sizing: border-box; }
-        input[type="date"], input[type="time"] { font-size: 16px; min-height: 44px; } /* Prevent zoom on iOS */
+        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 16px; width: 100%; box-sizing: border-box; min-height: 44px; }
+        input[type="checkbox"] { min-height: auto; width: auto; } /* Reset for checkboxes */
         button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
         th { text-align: left; color: var(--sub); padding: 8px; border-bottom: 1px solid #333; }
@@ -67,10 +68,7 @@
         @media (max-width: 480px) {
             .ing-row { grid-template-columns: 1fr 1fr; }
             .ing-row input:first-child { grid-column: span 2; }
-            #mealSearchInput { font-size: 16px; padding: 15px !important; width: 100%; box-sizing: border-box; } /* Better touch target & no zoom */
-            .select2-container { font-size: 16px; }
-            .select2-container .select2-selection--single { min-height: 44px; }
-            .select2-container .select2-selection--single .select2-selection__rendered { line-height: 44px; }
+            #mealSearchInput { padding: 15px !important; } /* Better touch target */
         }
         .chart-container { background: var(--card); padding: 10px; border-radius: 12px; height: 200px; }
         
