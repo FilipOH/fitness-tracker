@@ -103,7 +103,7 @@
     <div id="toast-container" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
     
     <!-- Network Status Indicator (Clickable to sync) -->
-    <div id="networkStatus" onclick="manualSync()" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px; cursor:pointer; transition:background 0.2s; user-select:none;" onmouseenter="this.style.background='rgba(50,50,50,0.95)'" onmouseleave="this.style.background='rgba(30,30,30,0.95)'">
+    <div id="networkStatus" onclick="manualSync()" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 15px); left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px; cursor:pointer; transition:background 0.2s; user-select:none;" onmouseenter="this.style.background='rgba(50,50,50,0.95)'" onmouseleave="this.style.background='rgba(30,30,30,0.95)'">
         <div id="statusDot" style="width:8px; height:8px; border-radius:50%; background:var(--green);"></div>
         <span id="statusText">Online</span>
         <span id="pendingCount" style="background:var(--accent); padding:2px 6px; border-radius:4px; font-size:0.8em; display:none;">0</span>
@@ -921,6 +921,28 @@
                 tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${i.Note || ''}</td><td>${deleteBtn}</td></tr>`;
             });
             document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
+        }
+
+        async function deleteLogEntry(pk, sk) {
+            if (!confirm('Are you sure you want to delete this entry?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/log?pk=${encodeURIComponent(pk)}&sk=${encodeURIComponent(sk)}`, {
+                    method: 'DELETE',
+                    headers: { 'x-api-key': API_KEY }
+                });
+                
+                if (response.ok) {
+                    showToast('Entry deleted', 'check-circle');
+                    await loadData();
+                    renderDetailedLogs();
+                } else {
+                    showToast('Failed to delete entry', 'exclamation-triangle');
+                }
+            } catch (e) {
+                showToast('Error deleting entry', 'exclamation-triangle');
+                console.error('Delete error:', e);
+            }
         }
 
         function toggleFields() {
