@@ -308,6 +308,10 @@
             <div class="form-row"><label>Daily Protein Goal (g)</label><input type="number" id="g-protein"></div>
             <div class="form-row"><label>Daily Sleep Score Goal (0-100)</label><input type="number" id="g-sleep"></div>
             <div class="form-row"><label>Weekly Gym Target (sessions)</label><input type="number" id="g-gym"></div>
+            <div class="form-row">
+                <label>Effective From <small style="color:var(--sub);">(when do these goals start?)</small></label>
+                <input type="date" id="g-effective-date" style="width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white; font-size: 16px; min-height: 44px;">
+            </div>
             <button class="submit" onclick="saveGoals()">Update Goals</button>
         </div>
     </div>
@@ -345,6 +349,7 @@
         let meals = [];
         let chartInstance = null;
         let goals = { weeklyNet: -3850, weeklyComparison: 'less', protein: 80, sleep: 75, gym: 2 };
+        let goalHistory = []; // Historical goals with effectiveDate
         let allRawItems = [];
         let logPage = 1;
         const logPageSize = 25;
@@ -680,11 +685,16 @@
                     const data = await res.json();
                     if (data.goals) {
                         goals = data.goals;
+                        goalHistory = data.history || []; // Load goal history
+                        
                         document.getElementById('g-weekly-net').value = goals.weeklyNet;
                         document.getElementById('g-weekly-comparison').value = goals.weeklyComparison || 'less';
                         document.getElementById('g-protein').value = goals.protein;
                         document.getElementById('g-sleep').value = goals.sleep;
                         document.getElementById('g-gym').value = goals.gym;
+                        
+                        // Set effective date to today by default for new changes
+                        document.getElementById('g-effective-date').value = new Date().toISOString().split('T')[0];
                     }
                 }
                 hideLoading();
@@ -696,6 +706,8 @@
 
         async function saveGoals() {
             try {
+                const effectiveDate = document.getElementById('g-effective-date').value || new Date().toISOString().split('T')[0];
+                
                 const newGoals = {
                     weeklyNet: parseFloat(document.getElementById('g-weekly-net').value),
                     weeklyComparison: document.getElementById('g-weekly-comparison').value,
@@ -706,11 +718,15 @@
                 const res = await fetch(`${API_BASE}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                    body: JSON.stringify({ goals: newGoals })
+                    body: JSON.stringify({ 
+                        goals: newGoals,
+                        effectiveDate: effectiveDate 
+                    })
                 });
                 if (res.ok) {
                     showToast('Goals Updated', 'check');
                     goals = newGoals;
+                    await fetchGoals(); // Reload to get updated history
                     loadDashboard();
                 } else {
                     showToast('Failed to save goals', 'exclamation-triangle');
@@ -719,6 +735,20 @@
                 showToast('Error saving goals', 'exclamation-triangle');
                 console.error(e);
             }
+        }
+
+        // Helper: Get goals that were active for a specific week
+        function getGoalsForWeek(weekStartDate) {
+            if (!goalHistory || goalHistory.length === 0) {
+                return goals; // Fallback to current goals if no history
+            }
+            
+            // Find the most recent goal that was effective on or before this week
+            const applicable = goalHistory
+                .filter(g => g.effectiveDate <= weekStartDate)
+                .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
+            
+            return applicable[0] || goals; // Fallback to current if no match
         }
 
         function exportCSV() {
@@ -1397,13 +1427,15 @@
             }
             weeks.forEach(w => {
                 const weekNet = weeklyData[w].net;
+                const weekGoals = getGoalsForWeek(w); // Use historical goals for this week
+                
                 let goalMet = false;
-                if (goals.weeklyComparison === 'less') {
-                    goalMet = weekNet <= goals.weeklyNet;
+                if (weekGoals.weeklyComparison === 'less') {
+                    goalMet = weekNet <= weekGoals.weeklyNet;
                 } else {
-                    goalMet = weekNet >= goals.weeklyNet;
+                    goalMet = weekNet >= weekGoals.weeklyNet;
                 }
-                const gymMet = weeklyData[w].gym >= goals.gym;
+                const gymMet = weeklyData[w].gym >= weekGoals.gym;
                 
                 const goalIcon = goalMet ? '<i class="fa-solid fa-check icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';
                 const gymIcon = gymMet ? '<i class="fa-solid fa-dumbbell icon-success"></i>' : '<i class="fa-solid fa-xmark icon-fail"></i>';

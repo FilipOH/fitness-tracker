@@ -103,16 +103,33 @@ def handle_config_post(event, api_key):
         return {'statusCode': 403, 'body': 'Unauthorized'}
     try:
         body = json.loads(event.get('body', '{}'))
+        effective_date = body.get('effectiveDate') or datetime.now().strftime('%Y-%m-%d')
+        
+        # Get existing config to access history
+        response = table.get_item(Key={'PK': 'CONFIG', 'SK': 'GOALS'})
+        existing = response.get('Item', {})
+        history = existing.get('history', [])
+        
+        # Create new goals object with effectiveDate
+        new_goals = {
+            'weeklyNet': Decimal(str(body['goals']['weeklyNet'])),
+            'weeklyComparison': body['goals'].get('weeklyComparison', 'less'),
+            'protein': Decimal(str(body['goals']['protein'])),
+            'sleep': Decimal(str(body['goals']['sleep'])),
+            'gym': Decimal(str(body['goals']['gym'])),
+            'effectiveDate': effective_date
+        }
+        
+        # Append to history and sort by date
+        history.append(new_goals)
+        history.sort(key=lambda x: x.get('effectiveDate', '1970-01-01'))
+        
+        # Save with both current and history
         item = {
             'PK': 'CONFIG',
             'SK': 'GOALS',
-            'Goals': {
-                'weeklyNet': Decimal(str(body['goals']['weeklyNet'])),
-                'weeklyComparison': body['goals'].get('weeklyComparison', 'less'),
-                'protein': Decimal(str(body['goals']['protein'])),
-                'sleep': Decimal(str(body['goals']['sleep'])),
-                'gym': Decimal(str(body['goals']['gym']))
-            }
+            'Goals': new_goals,
+            'history': history
         }
         table.put_item(Item=item)
         return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Saved'}
@@ -122,14 +139,21 @@ def handle_config_post(event, api_key):
 def handle_config_get(event, api_key):
     try:
         response = table.get_item(Key={'PK': 'CONFIG', 'SK': 'GOALS'})
+        item = response.get('Item', {})
+        
         class DecimalEncoder(json.JSONEncoder):
             def default(self, obj):
                 if isinstance(obj, Decimal): return float(obj)
                 return super(DecimalEncoder, self).default(obj)
+        
+        # Return both current goals and full history
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'goals': response.get('Item', {}).get('Goals', {})}, cls=DecimalEncoder)
+            'body': json.dumps({
+                'goals': item.get('Goals', {}),
+                'history': item.get('history', [])
+            }, cls=DecimalEncoder)
         }
     except Exception as e:
         return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
