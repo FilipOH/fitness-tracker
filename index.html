@@ -1225,29 +1225,38 @@
                 const data = await res.json();
                 meals = data.meals || [];
                 
-            // Filter based on current view
+            // Filter based on current view (for display in Meals tab only)
             const filteredMeals = meals.filter(m => {
                 const isQuick = m.isQuickFood || false;
                 return currentMealType === 'food' ? isQuick : !isQuick;
             });
             
+            // Populate dropdown with ALL non-quick foods (for Log tab)
             const select = document.getElementById('mealSelect');
             select.innerHTML = '<option value="">Search for a meal...</option>';
+            meals.forEach(m => {
+                if (!m.isQuickFood) {
+                    const perPortion = (m.Calories / m.Portions).toFixed(0);
+                    select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
+                }
+            });
+            
+            // Display filtered meals in Meals tab
             const list = document.getElementById('savedMealsList');
             list.innerHTML = `<h3 style="margin-top:20px;">${currentMealType === 'food' ? 'Quick Foods' : 'Saved Meals'}</h3>`;
             
             if (filteredMeals.length === 0) {
                 list.innerHTML += `<p style="text-align:center; color:var(--sub); padding:20px;">No ${currentMealType === 'food' ? 'quick foods' : 'saved meals'} yet. Create one above!</p>`;
+                // Still bind events even if no filtered meals
+                $('#mealSelect').off('change').on('change', applyMeal);
+                $('#mealPortions').off('input').on('input', () => {
+                    if ($('#mealSelect').val()) applyMeal();
+                });
                 return;
             }
             
             filteredMeals.forEach(m => {
                 const perPortion = (m.Calories / m.Portions).toFixed(0);
-                
-                // Only add non-quick foods to the select dropdown for meal selection
-                if (!m.isQuickFood) {
-                    select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
-                }
                 
                 const mealCard = document.createElement('div');
                 mealCard.className = 'card meal-card';
