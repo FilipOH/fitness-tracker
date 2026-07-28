@@ -134,8 +134,16 @@
 
     <div id="authOverlay">
         <h2 style="color: var(--accent);">Locked</h2>
-        <input type="password" id="passInput" placeholder="Password" style="width: 200px; margin-bottom: 20px; text-align: center;">
-        <button class="submit" onclick="checkAuth()" style="width: 200px;">Unlock</button>
+        <div id="biometricSection" style="display: none; margin-bottom: 20px;">
+            <i class="fas fa-fingerprint" style="font-size: 3em; color: var(--accent); margin-bottom: 15px;"></i>
+            <p style="font-size: 0.9em; color: var(--sub); margin-bottom: 15px;">Use Face ID or Touch ID</p>
+            <button class="submit" onclick="tryBiometricAuth()" style="width: 200px; margin-bottom: 10px;">Authenticate</button>
+            <button onclick="showPasswordAuth()" style="background: none; border: none; color: var(--sub); cursor: pointer; font-size: 0.9em;">Use Password Instead</button>
+        </div>
+        <div id="passwordSection" style="display: none;">
+            <input type="password" id="passInput" placeholder="Password" style="width: 200px; margin-bottom: 20px; text-align: center;">
+            <button class="submit" onclick="checkAuth()" style="width: 200px;">Unlock</button>
+        </div>
         <p id="authError" style="color: var(--red); font-size: 0.8em; margin-top: 10px;"></p>
     </div>
 
@@ -378,6 +386,14 @@
                 <input type="date" id="g-effective-date" style="width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white; font-size: 16px; min-height: 44px;">
             </div>
             <button class="submit" onclick="saveGoals()">Update Goals</button>
+        </div>
+        
+        <div class="card" style="margin-top: 20px;">
+            <h3 style="color: var(--accent); margin-bottom: 15px;">Security</h3>
+            <div id="biometricStatus" style="margin-bottom: 15px;">
+                <p style="font-size: 0.9em; color: var(--sub);">Loading biometric status...</p>
+            </div>
+            <button id="biometricToggle" class="submit" onclick="toggleBiometric()" style="display: none;"></button>
         </div>
     </div>
 
@@ -749,6 +765,214 @@
         function clearAuth() {
             localStorage.removeItem('cal_auth_token');
         }
+        
+        // ==================== BIOMETRIC AUTH (WebAuthn) ====================
+        
+        // Check if biometric auth is available and registered
+        function isBiometricAvailable() {
+            return window.PublicKeyCredential !== undefined && 
+                   navigator.credentials !== undefined;
+        }
+        
+        function isBiometricRegistered() {
+            return localStorage.getItem('cal_biometric_credential') !== null;
+        }
+        
+        // Register biometric (Face ID/Touch ID) - only after password auth
+        async function registerBiometric() {
+            if (!isBiometricAvailable()) {
+                showToast('Biometric authentication not supported on this device', 'exclamation-triangle');
+                return false;
+            }
+            
+            try {
+                // Generate a challenge (in production, this would come from server)
+                const challenge = new Uint8Array(32);
+                crypto.getRandomValues(challenge);
+                
+                // Create credential options
+                const publicKeyCredentialCreationOptions = {
+                    challenge: challenge,
+                    rp: {
+                        name: "Personal Progress Tracker",
+                        id: window.location.hostname
+                    },
+                    user: {
+                        id: new Uint8Array(16),
+                        name: "user@personaltracker.local",
+                        displayName: "Personal Tracker User"
+                    },
+                    pubKeyCredParams: [
+                        { type: "public-key", alg: -7 },  // ES256
+                        { type: "public-key", alg: -257 } // RS256
+                    ],
+                    authenticatorSelection: {
+                        authenticatorAttachment: "platform", // Use device biometric
+                        userVerification: "required"
+                    },
+                    timeout: 60000,
+                    attestation: "none"
+                };
+                
+                const credential = await navigator.credentials.create({
+                    publicKey: publicKeyCredentialCreationOptions
+                });
+                
+                if (credential) {
+                    // Store credential ID for future authentication
+                    const credentialData = {
+                        id: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+                        type: credential.type,
+                        registeredAt: Date.now()
+                    };
+                    localStorage.setItem('cal_biometric_credential', JSON.stringify(credentialData));
+                    localStorage.setItem('cal_biometric_challenge', btoa(String.fromCharCode(...challenge)));
+                    showToast('Face ID enabled successfully!', 'check');
+                    return true;
+                }
+            } catch (error) {
+                console.error('Biometric registration failed:', error);
+                if (error.name === 'NotAllowedError') {
+                    showToast('Biometric registration cancelled', 'exclamation-triangle');
+                } else {
+                    showToast('Failed to register biometric', 'exclamation-triangle');
+                }
+                return false;
+            }
+        }
+        
+        // Authenticate using biometric (Face ID/Touch ID)
+        async function authenticateBiometric() {
+            if (!isBiometricRegistered()) {
+                return false;
+            }
+            
+            try {
+                const storedCredential = JSON.parse(localStorage.getItem('cal_biometric_credential'));
+                const storedChallenge = localStorage.getItem('cal_biometric_challenge');
+                
+                if (!storedCredential || !storedChallenge) {
+                    return false;
+                }
+                
+                // Decode the credential ID
+                const credentialId = Uint8Array.from(atob(storedCredential.id), c => c.charCodeAt(0));
+                const challenge = Uint8Array.from(atob(storedChallenge), c => c.charCodeAt(0));
+                
+                const publicKeyCredentialRequestOptions = {
+                    challenge: challenge,
+                    allowCredentials: [{
+                        id: credentialId,
+                        type: 'public-key',
+                        transports: ['internal']
+                    }],
+                    timeout: 60000,
+                    userVerification: "required"
+                };
+                
+                const assertion = await navigator.credentials.get({
+                    publicKey: publicKeyCredentialRequestOptions
+                });
+                
+                if (assertion) {
+                    return true; // Biometric authentication successful
+                }
+            } catch (error) {
+                console.error('Biometric authentication failed:', error);
+                if (error.name === 'NotAllowedError') {
+                    // User cancelled or biometric failed
+                    return false;
+                }
+                return false;
+            }
+            
+            return false;
+        }
+        
+        // UI helper to show password auth section
+        function showPasswordAuth() {
+            document.getElementById('biometricSection').style.display = 'none';
+            document.getElementById('passwordSection').style.display = 'block';
+            document.getElementById('passInput').focus();
+        }
+        
+        // UI helper to show biometric auth section
+        function showBiometricAuth() {
+            document.getElementById('passwordSection').style.display = 'none';
+            document.getElementById('biometricSection').style.display = 'block';
+        }
+        
+        // Try biometric auth (called from UI button)
+        async function tryBiometricAuth() {
+            const errorEl = document.getElementById('authError');
+            errorEl.innerText = '';
+            
+            const success = await authenticateBiometric();
+            if (success) {
+                // Biometric auth successful - grant access
+                document.getElementById('authOverlay').style.display = 'none';
+                document.getElementById('app').classList.add('authenticated');
+                generateAuthToken();
+                loadMeals();
+                fetchGoals();
+                
+                if (navigator.onLine) {
+                    syncPendingMutations();
+                }
+                
+                showToast('Unlocked with biometric', 'check');
+            } else {
+                errorEl.innerText = 'Biometric authentication failed';
+                showPasswordAuth();
+            }
+        }
+        
+        // Toggle biometric registration
+        async function toggleBiometric() {
+            if (isBiometricRegistered()) {
+                // Remove biometric
+                if (confirm('Remove Face ID / Touch ID authentication? You will need to use your password next time.')) {
+                    localStorage.removeItem('cal_biometric_credential');
+                    localStorage.removeItem('cal_biometric_challenge');
+                    showToast('Biometric authentication removed', 'check');
+                    updateBiometricStatus();
+                }
+            } else {
+                // Register biometric
+                const success = await registerBiometric();
+                if (success) {
+                    updateBiometricStatus();
+                }
+            }
+        }
+        
+        // Update biometric status display in Goals tab
+        function updateBiometricStatus() {
+            const statusDiv = document.getElementById('biometricStatus');
+            const toggleBtn = document.getElementById('biometricToggle');
+            
+            if (!statusDiv || !toggleBtn) return; // Not on goals tab yet
+            
+            if (!isBiometricAvailable()) {
+                statusDiv.innerHTML = '<p style="font-size: 0.9em; color: var(--sub);"><i class="fas fa-info-circle"></i> Biometric authentication not supported on this device</p>';
+                toggleBtn.style.display = 'none';
+            } else if (isBiometricRegistered()) {
+                const credential = JSON.parse(localStorage.getItem('cal_biometric_credential'));
+                const registeredDate = new Date(credential.registeredAt).toLocaleDateString('en-GB');
+                statusDiv.innerHTML = `
+                    <p style="font-size: 0.9em; color: var(--accent);"><i class="fas fa-check-circle"></i> Face ID / Touch ID enabled</p>
+                    <p style="font-size: 0.8em; color: var(--sub); margin-top: 5px;">Registered on ${registeredDate}</p>
+                `;
+                toggleBtn.textContent = 'Remove Biometric Authentication';
+                toggleBtn.style.display = 'block';
+                toggleBtn.style.background = 'var(--red)';
+            } else {
+                statusDiv.innerHTML = '<p style="font-size: 0.9em; color: var(--sub);"><i class="fas fa-fingerprint"></i> Face ID / Touch ID available but not enabled</p>';
+                toggleBtn.textContent = 'Enable Biometric Authentication';
+                toggleBtn.style.display = 'block';
+                toggleBtn.style.background = 'var(--accent)';
+            }
+        }
 
         // ==================== END OFFLINE SUPPORT ====================
 
@@ -946,6 +1170,15 @@
                     if (navigator.onLine) {
                         syncPendingMutations();
                     }
+                    
+                    // Offer to set up biometric if not already registered
+                    if (isBiometricAvailable() && !isBiometricRegistered()) {
+                        setTimeout(() => {
+                            if (confirm('Enable Face ID or Touch ID for faster login next time?')) {
+                                registerBiometric();
+                            }
+                        }, 500);
+                    }
                 } else {
                     errorEl.innerText = "Incorrect Password";
                 }
@@ -979,6 +1212,34 @@
                 // Sync on load if online
                 if (navigator.onLine) {
                     syncPendingMutations();
+                }
+            } else {
+                // Token expired or not present - show auth
+                // Try biometric first if registered, otherwise show password
+                if (isBiometricRegistered() && isBiometricAvailable()) {
+                    showBiometricAuth();
+                    // Auto-trigger biometric prompt after a short delay
+                    setTimeout(async () => {
+                        const success = await authenticateBiometric();
+                        if (success) {
+                            // Biometric auth successful
+                            document.getElementById('authOverlay').style.display = 'none';
+                            document.getElementById('app').classList.add('authenticated');
+                            generateAuthToken();
+                            loadMeals();
+                            fetchGoals();
+                            
+                            if (navigator.onLine) {
+                                syncPendingMutations();
+                            }
+                        } else {
+                            // Biometric failed - show password option
+                            showPasswordAuth();
+                        }
+                    }, 300);
+                } else {
+                    // No biometric registered - show password input
+                    showPasswordAuth();
                 }
             }
             
@@ -1018,7 +1279,10 @@
                 const ukDate = getUKDateTime();
                 document.getElementById('logDate').value = ukDate.date;
             }
-            if (id === 'goalsTab') fetchGoals();
+            if (id === 'goalsTab') {
+                fetchGoals();
+                updateBiometricStatus();
+            }
         }
 
         function switchRawView(view) {
