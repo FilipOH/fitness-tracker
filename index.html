@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --accent: #00adb5; --sub: #888; --green: #28a745; --red: #dc3545; }
-        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 70px; padding-top: calc(env(safe-area-inset-top, 0px) + 25px); overflow-x: hidden; width: 100%; box-sizing: border-box; }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px) + 10px); padding-top: calc(env(safe-area-inset-top, 0px) + 25px); overflow-x: hidden; width: 100%; box-sizing: border-box; }
         /* Icon styling */
         .icon-success { color: var(--green); }
         .icon-fail { color: var(--red); opacity: 0.5; }
@@ -44,7 +44,21 @@
             animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
         }
         
-        .nav-bar { position: fixed; bottom: 0; width: 100%; height: 60px; background: #222; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #333; z-index: 1000; }
+        .nav-bar { 
+            position: fixed; 
+            bottom: 0; 
+            left: 0;
+            right: 0;
+            width: 100%; 
+            height: 60px; 
+            background: #222; 
+            display: flex; 
+            justify-content: space-around; 
+            align-items: center; 
+            border-top: 1px solid #333; 
+            z-index: 1000; 
+            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+        }
         .nav-item { color: var(--sub); text-decoration: none; font-size: 0.7em; display: flex; flex-direction: column; align-items: center; background: none; border: none; padding: 5px; width: 25%; cursor: pointer; }
         .nav-item.active { color: var(--accent); }
         .nav-item svg { width: 24px; height: 24px; margin-bottom: 3px; fill: currentColor; }
