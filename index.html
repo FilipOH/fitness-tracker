@@ -376,47 +376,72 @@
 
         // Add mutation to offline queue
         async function queueMutation(mutation) {
+            if (!db) {
+                console.error('IndexedDB not initialized - db is null');
+                throw new Error('Database not available');
+            }
             return new Promise((resolve, reject) => {
-                const transaction = db.transaction(['pendingMutations'], 'readwrite');
-                const store = transaction.objectStore('pendingMutations');
-                
-                // Add client-side UUID for idempotency
-                mutation.uuid = crypto.randomUUID();
-                mutation.timestamp = Date.now();
-                
-                const request = store.add(mutation);
-                request.onsuccess = () => {
-                    updatePendingCount();
-                    resolve(request.result);
-                };
-                request.onerror = () => reject(request.error);
+                try {
+                    const transaction = db.transaction(['pendingMutations'], 'readwrite');
+                    const store = transaction.objectStore('pendingMutations');
+                    
+                    // Add client-side UUID for idempotency
+                    mutation.uuid = crypto.randomUUID();
+                    mutation.timestamp = Date.now();
+                    
+                    const request = store.add(mutation);
+                    request.onsuccess = () => {
+                        updatePendingCount();
+                        resolve(request.result);
+                    };
+                    request.onerror = () => reject(request.error);
+                } catch (e) {
+                    reject(e);
+                }
             });
         }
 
         // Get all pending mutations
         async function getPendingMutations() {
+            if (!db) {
+                console.error('IndexedDB not initialized');
+                return [];
+            }
             return new Promise((resolve, reject) => {
-                const transaction = db.transaction(['pendingMutations'], 'readonly');
-                const store = transaction.objectStore('pendingMutations');
-                const request = store.getAll();
-                
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
+                try {
+                    const transaction = db.transaction(['pendingMutations'], 'readonly');
+                    const store = transaction.objectStore('pendingMutations');
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                } catch (e) {
+                    console.error('Error getting pending mutations:', e);
+                    resolve([]);
+                }
             });
         }
 
         // Remove mutation from queue
         async function removeMutation(id) {
+            if (!db) {
+                console.error('IndexedDB not initialized');
+                return;
+            }
             return new Promise((resolve, reject) => {
-                const transaction = db.transaction(['pendingMutations'], 'readwrite');
-                const store = transaction.objectStore('pendingMutations');
-                const request = store.delete(id);
-                
-                request.onsuccess = () => {
-                    updatePendingCount();
-                    resolve();
-                };
-                request.onerror = () => reject(request.error);
+                try {
+                    const transaction = db.transaction(['pendingMutations'], 'readwrite');
+                    const store = transaction.objectStore('pendingMutations');
+                    const request = store.delete(id);
+                    
+                    request.onsuccess = () => {
+                        updatePendingCount();
+                        resolve();
+                    };
+                    request.onerror = () => reject(request.error);
+                } catch (e) {
+                    reject(e);
+                }
             });
         }
 
@@ -727,9 +752,11 @@
             // Initialize IndexedDB
             try {
                 await initDB();
+                console.log('IndexedDB initialized successfully');
                 updatePendingCount();
             } catch (e) {
                 console.error('Failed to initialize IndexedDB:', e);
+                showToast('Offline mode unavailable - browser storage disabled', 'exclamation-triangle');
             }
             
             // Check if auth token is valid
@@ -1053,10 +1080,16 @@
             }
 
             // Check pending mutation queue size (max 100 entries)
-            const pending = await getPendingMutations();
-            if (pending.length >= 100) {
-                showToast('Queue full - please sync first', 'exclamation-triangle');
-                return;
+            let pending = [];
+            try {
+                pending = await getPendingMutations();
+                if (pending.length >= 100) {
+                    showToast('Queue full - please sync first', 'exclamation-triangle');
+                    return;
+                }
+            } catch (e) {
+                console.error('Error checking queue size:', e);
+                // Continue - we'll try to queue anyway
             }
 
             const payload = { 
@@ -1071,6 +1104,9 @@
             // If offline or auth token expired, queue mutation
             if (!navigator.onLine || !isAuthValid()) {
                 try {
+                    if (!db) {
+                        throw new Error('Offline storage not available - please check browser settings');
+                    }
                     await queueMutation({
                         endpoint: '/log',
                         method: 'POST',
@@ -1084,8 +1120,8 @@
                     });
                     return;
                 } catch (e) {
-                    showToast('Failed to queue offline', 'exclamation-triangle');
-                    console.error(e);
+                    showToast('Failed to queue offline: ' + (e.message || 'Unknown error'), 'exclamation-triangle');
+                    console.error('Offline queue error:', e);
                     return;
                 }
             }
