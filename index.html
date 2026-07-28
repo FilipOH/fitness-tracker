@@ -69,7 +69,7 @@
         .card.stat { text-align: center; }
         .card.stat h2 { margin: 0; font-size: 0.7em; color: var(--sub); text-transform: uppercase; }
         .card.stat p { margin: 5px 0 0; font-size: 1.1em; font-weight: bold; }
-        .form-row { display: flex; flex-direction: column; margin-bottom: 15px; }
+        .form-row { display: flex; flex-direction: column; margin-bottom: 15px; width: 100%; max-width: 100%; overflow: hidden; }
         label { font-size: 0.9em; color: var(--sub); margin-bottom: 5px; }
         input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 16px; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 44px; display: block; margin: 0; min-width: 0; }
         input[type="date"], input[type="time"] { 
@@ -79,7 +79,11 @@
             max-width: 100% !important;
             min-width: 0 !important;
             flex: 1 1 auto;
+            display: block !important; /* Force block display on iOS */
+            box-sizing: border-box !important;
             -webkit-appearance: listbox; /* Keeps native picker but fixes width */
+            appearance: listbox; /* Standard property for compatibility */
+            -webkit-text-fill-color: white !important; /* iOS text color fix */
         }
         input[type="checkbox"] { min-height: auto; width: auto; display: inline-block; } /* Reset for checkboxes */
         button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
