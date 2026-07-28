@@ -1126,6 +1126,13 @@
             const errorEl = document.getElementById('authError');
             errorEl.innerText = '';
             
+            // SECURITY: Biometric only works if API_KEY already stored from previous password login
+            if (!API_KEY) {
+                errorEl.innerText = 'Please enter password first (API key not found)';
+                showPasswordAuth();
+                return;
+            }
+            
             const success = await authenticateBiometric();
             if (success) {
                 // Biometric auth successful - grant access
@@ -1454,8 +1461,8 @@
                 const trusted = await isDeviceTrusted();
                 
                 if (trusted) {
-                    // Device is trusted - try biometric first if available, otherwise password (no MFA needed)
-                    if (isBiometricRegistered() && isBiometricAvailable()) {
+                    // Device is trusted - try biometric first if available AND API_KEY exists, otherwise password (no MFA needed)
+                    if (isBiometricRegistered() && isBiometricAvailable() && API_KEY) {
                         showBiometricAuth();
                         // Auto-trigger biometric prompt after a short delay
                         setTimeout(async () => {
