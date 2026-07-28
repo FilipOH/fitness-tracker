@@ -142,6 +142,7 @@
                     <option value="ACTIVE">Log Calories Burned</option>
                     <option value="SLEEP">Log Sleep Score</option>
                     <option value="WEIGHT">Log Weight</option>
+                    <option value="EXERCISE">Exercise PR</option>
                 </select>
             </div>
 
@@ -199,6 +200,23 @@
                 <div class="form-row"><label>Weight (kg)</label><input type="number" id="weightVal" step="0.1" min="30" max="300"></div>
             </div>
 
+            <!-- Exercise Form -->
+            <div id="exerciseForm" style="display:none;">
+                <div class="form-row">
+                    <label>Exercise</label>
+                    <select id="exerciseType">
+                        <option value="bench">Max Bench Press (kg)</option>
+                        <option value="squat">Max Squat (kg)</option>
+                        <option value="5k">5K Run Time (mm:ss)</option>
+                        <option value="pullups">Max Pullup Reps</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label id="exerciseValueLabel">Value</label>
+                    <input type="text" id="exerciseVal" placeholder="e.g. 100 or 25:30">
+                </div>
+            </div>
+
             <button class="submit" onclick="submitData()">Save Entry</button>
             <p id="feedback" style="text-align:center; font-size:0.8em; margin-top:10px;"></p>
         </div>
@@ -239,6 +257,15 @@
         </div>
         
         <div class="card" style="text-align:center;"><p style="font-size:0.7em; color:var(--sub);">EST. TOTAL LOSS</p><p id="d-loss" style="font-size:1.5em; font-weight:bold; color:var(--accent);">-- kg</p></div>
+        
+        <!-- Personal Records -->
+        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Personal Records</h2>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="card stat"><h2 style="font-size:0.7em;">Bench</h2><p id="pr-bench">--</p></div>
+            <div class="card stat"><h2 style="font-size:0.7em;">Squat</h2><p id="pr-squat">--</p></div>
+            <div class="card stat"><h2 style="font-size:0.7em;">5K Run</h2><p id="pr-5k">--</p></div>
+            <div class="card stat"><h2 style="font-size:0.7em;">Pullups</h2><p id="pr-pullups">--</p></div>
+        </div>
         
         <div class="card" style="padding:5px;">
             <table><thead><tr><th>Week</th><th>Net</th><th>Goal</th><th>Gym</th></tr></thead><tbody id="weeklyTable"></tbody></table>
@@ -987,10 +1014,30 @@
                 const sk = i.SK || '';
                 const time = sk.includes('#') ? sk.split('#')[1] : sk;
                 const value = i.Value || 0;
-                const displayVal = i.Type === 'GYM' ? '✓' : value.toFixed(0);
+                
+                let displayVal = value.toFixed(0);
+                if (i.Type === 'GYM') displayVal = '✓';
+                else if (i.Type === 'EXERCISE') {
+                    const exercise = i.Note;
+                    if (exercise === 'bench' || exercise === 'squat') {
+                        displayVal = value.toFixed(0) + ' kg';
+                    } else if (exercise === '5k') {
+                        const mins = Math.floor(value / 60);
+                        const secs = value % 60;
+                        displayVal = `${mins}:${secs.toString().padStart(2, '0')}`;
+                    } else if (exercise === 'pullups') {
+                        displayVal = value.toFixed(0) + ' reps';
+                    }
+                }
+                
                 const displayPro = i.Type === 'FOOD' ? (i.Protein || 0).toFixed(0) : '-';
                 const deleteBtn = sk.includes('DAILY') ? '' : `<button onclick="deleteLogEntry('${i.PK}','${i.SK}')" style="background:none; border:none; color:#ff4444; cursor:pointer; font-size:1.1em;"><i class="fas fa-trash"></i></button>`;
-                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${i.Note || ''}</td><td>${deleteBtn}</td></tr>`;
+                
+                const noteDisplay = i.Type === 'EXERCISE' 
+                    ? (i.Note === 'bench' ? 'Bench Press' : i.Note === 'squat' ? 'Squat' : i.Note === '5k' ? '5K Run' : 'Pullups')
+                    : (i.Note || '');
+                
+                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${noteDisplay}</td><td>${deleteBtn}</td></tr>`;
             });
             document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
         }
@@ -1031,6 +1078,7 @@
             document.getElementById('activeForm').style.display = type === 'ACTIVE' ? 'block' : 'none';
             document.getElementById('sleepForm').style.display = type === 'SLEEP' ? 'block' : 'none';
             document.getElementById('weightForm').style.display = type === 'WEIGHT' ? 'block' : 'none';
+            document.getElementById('exerciseForm').style.display = type === 'EXERCISE' ? 'block' : 'none';
         }
 
         function toggleSavedMeals() {
@@ -1305,6 +1353,22 @@
             else if (type === 'WEIGHT') { val = document.getElementById('weightVal').value; }
             else if (type === 'ACTIVE') { val = document.getElementById('activeVal').value; }
             else if (type === 'SLEEP') { val = document.getElementById('sleepVal').value; }
+            else if (type === 'EXERCISE') {
+                const exercise = document.getElementById('exerciseType').value;
+                const exerciseVal = document.getElementById('exerciseVal').value;
+                if (exercise === '5k') {
+                    // Parse mm:ss format to total seconds
+                    const parts = exerciseVal.split(':');
+                    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+                        showToast('5K time must be in mm:ss format (e.g. 25:30)', 'exclamation-triangle');
+                        return;
+                    }
+                    val = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                } else {
+                    val = parseFloat(exerciseVal);
+                }
+                note = exercise;
+            }
 
             // Validation
             if (!val || isNaN(val) || parseFloat(val) < 0) {
@@ -1510,6 +1574,26 @@
             
             let totalNet = 0; Object.values(dayRollup).forEach(d => totalNet += d.net);
             document.getElementById('d-loss').innerText = ((totalNet * (1 / 7.7)) / 1000).toFixed(2) + ' kg';
+
+            // Calculate Personal Records
+            const exerciseEntries = items.filter(i => i.Type === 'EXERCISE');
+            const prs = {
+                bench: exerciseEntries.filter(e => e.Note === 'bench').sort((a,b) => b.Value - a.Value)[0],
+                squat: exerciseEntries.filter(e => e.Note === 'squat').sort((a,b) => b.Value - a.Value)[0],
+                '5k': exerciseEntries.filter(e => e.Note === '5k').sort((a,b) => a.Value - b.Value)[0], // Lower is better
+                pullups: exerciseEntries.filter(e => e.Note === 'pullups').sort((a,b) => b.Value - a.Value)[0]
+            };
+            
+            document.getElementById('pr-bench').innerText = prs.bench ? `${prs.bench.Value} kg` : '--';
+            document.getElementById('pr-squat').innerText = prs.squat ? `${prs.squat.Value} kg` : '--';
+            if (prs['5k']) {
+                const mins = Math.floor(prs['5k'].Value / 60);
+                const secs = prs['5k'].Value % 60;
+                document.getElementById('pr-5k').innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+            } else {
+                document.getElementById('pr-5k').innerText = '--';
+            }
+            document.getElementById('pr-pullups').innerText = prs.pullups ? `${prs.pullups.Value} reps` : '--';
 
             const rawBody = document.getElementById('rawTable'); rawBody.innerHTML = '';
             uniqueDays.forEach(d => {
