@@ -1047,13 +1047,29 @@
             }
             
             try {
+                const deviceFingerprint = getDeviceFingerprint();
+                
                 const res = await fetch(`${API_BASE}/verify-totp`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code })
+                    body: JSON.stringify({ 
+                        code,
+                        deviceFingerprint 
+                    })
                 });
                 
                 const data = await res.json();
+                
+                if (res.status === 429) {
+                    // Rate limited
+                    errorEl.innerText = 'Too many failed attempts. Please wait 5 minutes.';
+                    document.getElementById('mfaInput').disabled = true;
+                    setTimeout(() => {
+                        document.getElementById('mfaInput').disabled = false;
+                        errorEl.innerText = '';
+                    }, 300000); // 5 minutes
+                    return;
+                }
                 
                 if (data.success) {
                     // MFA successful - show trust device option

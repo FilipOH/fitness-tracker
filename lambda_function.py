@@ -85,6 +85,13 @@ def handle_meal_post(event, api_key):
         return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
 
 def handle_meal_get(event, api_key):
+    # AUTH: Check API key in query string or header
+    params = event.get('queryStringParameters', {}) or {}
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    
+    if params.get('key') != api_key and headers.get('x-api-key') != api_key:
+        return {'statusCode': 403, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Unauthorized'})}
+    
     # (Simplified scan for personal project)
     response = meals_table.scan()
     class DecimalEncoder(json.JSONEncoder):
@@ -152,6 +159,13 @@ def handle_config_post(event, api_key):
         return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
 
 def handle_config_get(event, api_key):
+    # AUTH: Check API key in query string or header
+    params = event.get('queryStringParameters', {}) or {}
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    
+    if params.get('key') != api_key and headers.get('x-api-key') != api_key:
+        return {'statusCode': 403, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Unauthorized'})}
+    
     try:
         response = table.get_item(Key={'PK': 'CONFIG', 'SK': 'GOALS'})
         item = response.get('Item', {})
@@ -267,13 +281,37 @@ def handle_delete_log(event, api_key):
         return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
 
 def handle_verify_totp(event):
-    """Verify TOTP code - no API key required (public endpoint)"""
+    """Verify TOTP code with rate limiting"""
     try:
         body = json.loads(event.get('body', '{}'))
         totp_code = body.get('code')
+        device_fingerprint = body.get('deviceFingerprint', 'unknown')
         
         if not totp_code:
             return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Code required'})}
+        
+        # SECURITY: Check for rate limiting - max 3 failed attempts per 5 minutes
+        rate_limit_key = f"RATELIMIT#{device_fingerprint}"
+        try:
+            rl_response = table.get_item(Key={'PK': 'TOTP', 'SK': rate_limit_key})
+            rl_item = rl_response.get('Item')
+            
+            if rl_item:
+                attempts = int(rl_item.get('Attempts', 0))
+                last_attempt = rl_item.get('LastAttempt')
+                
+                # Check if within 5 minute window
+                if last_attempt:
+                    last_time = datetime.fromisoformat(last_attempt)
+                    if datetime.now() - last_time < timedelta(minutes=5):
+                        if attempts >= 3:
+                            return {
+                                'statusCode': 429,
+                                'headers': {'Access-Control-Allow-Origin': '*'},
+                                'body': json.dumps({'error': 'Too many attempts. Please wait 5 minutes.'})
+                            }
+        except Exception as e:
+            print(f"Rate limit check error: {e}")
         
         # Get TOTP secret from environment (set by user manually)
         totp_secret = os.environ.get('TOTP_SECRET')
@@ -285,12 +323,36 @@ def handle_verify_totp(event):
         is_valid = totp.verify(totp_code, valid_window=1)
         
         if is_valid:
+            # SUCCESS: Clear rate limit
+            try:
+                table.delete_item(Key={'PK': 'TOTP', 'SK': rate_limit_key})
+            except:
+                pass
+            
             return {
                 'statusCode': 200,
                 'headers': {'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({'success': True, 'message': 'TOTP verified'})
             }
         else:
+            # FAIL: Increment rate limit counter
+            try:
+                current_attempts = 0
+                if rl_item:
+                    last_time = datetime.fromisoformat(rl_item.get('LastAttempt'))
+                    # Reset counter if more than 5 minutes passed
+                    if datetime.now() - last_time < timedelta(minutes=5):
+                        current_attempts = int(rl_item.get('Attempts', 0))
+                
+                table.put_item(Item={
+                    'PK': 'TOTP',
+                    'SK': rate_limit_key,
+                    'Attempts': current_attempts + 1,
+                    'LastAttempt': datetime.now().isoformat()
+                })
+            except Exception as e:
+                print(f"Rate limit update error: {e}")
+            
             return {
                 'statusCode': 401,
                 'headers': {'Access-Control-Allow-Origin': '*'},
