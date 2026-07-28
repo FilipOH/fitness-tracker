@@ -1146,9 +1146,9 @@
             // Online - submit immediately with timeout
             showLoading();
             try {
-                // Create abort controller for 10s timeout
+                // Create abort controller for 5s timeout (fast detection of poor connections)
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
                 
                 const res = await fetch(`${API_BASE}/log`, {
                     method: 'POST',
@@ -1158,6 +1158,7 @@
                 });
                 
                 clearTimeout(timeoutId);
+                hideLoading();
                 
                 if (res.ok) { 
                     showToast('Entry Saved'); 
@@ -1168,12 +1169,28 @@
                     showToast('Failed to save entry', 'exclamation-triangle');
                 }
             } catch (e) {
+                hideLoading();
                 // If network error or timeout, queue for offline
+                const isTimeout = e.name === 'AbortError';
                 console.log('Network error caught:', e.name, e.message);
+                
+                // Show network status indicator if poor connection
+                if (isTimeout) {
+                    updateNetworkStatus(false);
+                }
+                
                 try {
                     if (!db) {
                         throw new Error('Offline storage not available');
                     }
+                    
+                    // Check queue size before adding
+                    const pending = await getPendingMutations();
+                    if (pending.length >= 100) {
+                        showToast('Queue full - please sync first', 'exclamation-triangle');
+                        return;
+                    }
+                    
                     await queueMutation({
                         endpoint: '/log',
                         method: 'POST',
@@ -1181,7 +1198,12 @@
                         body: JSON.stringify(payload),
                         displayInfo: `${type} entry: ${val} cals`
                     });
-                    showToast('Saved offline - will sync later', 'clock');
+                    
+                    const message = isTimeout 
+                        ? 'Connection too slow - saved offline' 
+                        : 'Network error - saved offline';
+                    showToast(message, 'clock');
+                    
                     document.querySelectorAll('.card input').forEach(i => {
                         if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
                     });
@@ -1189,8 +1211,6 @@
                     showToast('Failed to save: ' + (queueError.message || 'Unknown error'), 'exclamation-triangle');
                     console.error('Queue error:', queueError);
                 }
-            } finally {
-                hideLoading();
             }
         }
 
