@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --accent: #00adb5; --sub: #888; --green: #28a745; --red: #dc3545; }
-        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding: 0; padding-bottom: 70px; }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 70px; padding-top: calc(env(safe-area-inset-top, 0px) + 30px); overflow-x: hidden; width: 100%; box-sizing: border-box; }
         /* Icon styling */
         .icon-success { color: var(--green); }
         .icon-fail { color: var(--red); opacity: 0.5; }
@@ -51,14 +51,15 @@
         .nav-item span { display: block; }
         h1, h2 { margin-bottom: 10px; }
         .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-        .card { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; box-sizing: border-box; }
+        .card { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; box-sizing: border-box; overflow: hidden; }
         .card.stat { text-align: center; }
         .card.stat h2 { margin: 0; font-size: 0.7em; color: var(--sub); text-transform: uppercase; }
         .card.stat p { margin: 5px 0 0; font-size: 1.1em; font-weight: bold; }
         .form-row { display: flex; flex-direction: column; margin-bottom: 15px; }
         label { font-size: 0.9em; color: var(--sub); margin-bottom: 5px; }
-        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 16px; width: 100%; box-sizing: border-box; min-height: 44px; }
-        input[type="checkbox"] { min-height: auto; width: auto; } /* Reset for checkboxes */
+        input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 16px; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 44px; display: block; margin: 0; min-width: 0; }
+        input[type="date"], input[type="time"] { padding: 10px; } /* Slightly less padding for native controls */
+        input[type="checkbox"] { min-height: auto; width: auto; display: inline-block; } /* Reset for checkboxes */
         button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
         th { text-align: left; color: var(--sub); padding: 8px; border-bottom: 1px solid #333; }
