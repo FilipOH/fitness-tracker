@@ -352,6 +352,20 @@
 
         // ==================== OFFLINE PWA SUPPORT ====================
         
+        // Generate UUID with fallback for older browsers
+        function generateUUID() {
+            // Try modern crypto.randomUUID() first
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            // Fallback for older browsers/iOS
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        
         // Initialize IndexedDB for offline mutation queue
         function initDB() {
             return new Promise((resolve, reject) => {
@@ -386,7 +400,7 @@
                     const store = transaction.objectStore('pendingMutations');
                     
                     // Add client-side UUID for idempotency
-                    mutation.uuid = crypto.randomUUID();
+                    mutation.uuid = generateUUID();
                     mutation.timestamp = Date.now();
                     
                     const request = store.add(mutation);
@@ -557,7 +571,7 @@
         // Auth token management (24h expiry)
         function generateAuthToken() {
             const token = {
-                value: crypto.randomUUID(),
+                value: generateUUID(),
                 expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24 hours
             };
             localStorage.setItem('cal_auth_token', JSON.stringify(token));
