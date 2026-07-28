@@ -1158,7 +1158,12 @@
             
             if (isQuickFood) {
                 // Quick food - just name, calories, and protein
-                totalCals = parseFloat(document.getElementById('m-quickcals').value || 0);
+                const quickCals = document.getElementById('m-quickcals').value;
+                if (!quickCals || parseFloat(quickCals) <= 0) {
+                    showToast('Please enter calories for quick food', 'exclamation-triangle');
+                    return;
+                }
+                totalCals = parseFloat(quickCals);
                 portions = 1;
             } else {
                 // Multi-ingredient meal

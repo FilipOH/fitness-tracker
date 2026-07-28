@@ -58,13 +58,18 @@ def handle_meal_post(event, api_key):
         return {'statusCode': 403, 'body': 'Unauthorized'}
     try:
         body = json.loads(event.get('body', '{}'))
-        meals_table.put_item(Item={
+        item = {
             'MealName': body['name'],
             'Calories': Decimal(str(body['calories'])),
             'Protein': Decimal(str(body.get('protein') or 0)),
             'Ingredients': body.get('ingredients', []),
             'Portions': Decimal(str(body.get('portions') or 1))
-        })
+        }
+        # Add isQuickFood flag if present (use lowercase 'i' to match frontend)
+        if 'isQuickFood' in body:
+            item['isQuickFood'] = bool(body['isQuickFood'])
+        
+        meals_table.put_item(Item=item)
         return {'statusCode': 200, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': 'Saved'}
     except Exception as e:
         return {'statusCode': 500, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': str(e)}
