@@ -1,1 +1,1 @@
-{"status": "authenticated"}
+{"status": "authenticated", "apiKey": "my_secret_token_123"}

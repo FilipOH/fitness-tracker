@@ -447,10 +447,10 @@
     </div> <!-- Close #app -->
 
     <script>
-        // Note: API key is visible in client code (unavoidable for static sites).
-        // Protection: Lambda validates key + AWS can add rate limiting/WAF if needed.
-        // To rotate key if compromised: update Lambda env var + redeploy.
-        const API_KEY = 'my_secret_token_123';
+        // API Key is stored in password file on S3 (not visible in source code)
+        // Retrieved after successful password authentication
+        // To rotate key: update password file + Lambda env var
+        let API_KEY = localStorage.getItem('cal_api_key') || null;
         const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
         let meals = [];
         let chartInstance = null;
@@ -782,6 +782,8 @@
             if (!token) return false;
             if (Date.now() > token.expiresAt) {
                 localStorage.removeItem('cal_auth_token');
+                localStorage.removeItem('cal_api_key');
+                API_KEY = null;
                 return false;
             }
             return true;
@@ -789,6 +791,8 @@
 
         function clearAuth() {
             localStorage.removeItem('cal_auth_token');
+            localStorage.removeItem('cal_api_key');
+            API_KEY = null;
         }
         
         // ==================== BIOMETRIC AUTH (WebAuthn) ====================
@@ -1372,6 +1376,16 @@
                 // This is a simple S3-native way to do "password protection" without a backend
                 const res = await fetch(`auth/${pass}.json`);
                 if (res.ok) {
+                    // SECURITY: Extract API key from password file (not visible in source code)
+                    const data = await res.json();
+                    if (data.apiKey) {
+                        API_KEY = data.apiKey;
+                        localStorage.setItem('cal_api_key', API_KEY);
+                    } else {
+                        errorEl.innerText = "Invalid authentication file";
+                        return;
+                    }
+                    
                     // Password correct - check if device is trusted
                     const trusted = await isDeviceTrusted();
                     
@@ -1424,8 +1438,8 @@
                 showToast('Offline mode unavailable - browser storage disabled', 'exclamation-triangle');
             }
             
-            // Check if auth token is valid
-            if (isAuthValid()) {
+            // Check if auth token is valid AND API key is stored
+            if (isAuthValid() && API_KEY) {
                 document.getElementById('authOverlay').style.display = 'none';
                 document.getElementById('app').classList.add('authenticated');
                 loadMeals();
