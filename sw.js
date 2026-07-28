@@ -1,5 +1,5 @@
 // Service Worker for Offline PWA Support
-const CACHE_NAME = 'calorie-tracker-v2';
+const CACHE_NAME = 'calorie-tracker-v3';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -8,7 +8,8 @@ const urlsToCache = [
   'https://code.jquery.com/jquery-3.6.0.min.js',
   'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
   'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
-  'https://cdn.jsdelivr.net/npm/chart.js'
+  'https://cdn.jsdelivr.net/npm/chart.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css'
 ];
 
 // Install event - cache assets
@@ -43,6 +44,33 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // CRITICAL: Navigation requests (opening the app) - always serve cached index.html when offline
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          // Cache the response for next time
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(request, responseClone);
+          });
+          return response;
+        })
+        .catch(() => {
+          // Offline: serve cached index.html for any navigation
+          return caches.match('/index.html').then(cachedResponse => {
+            if (cachedResponse) {
+              console.log('Service Worker: Serving cached app (offline mode)');
+              return cachedResponse;
+            }
+            // Fallback if nothing cached (shouldn't happen after first load)
+            return caches.match('/');
+          });
+        })
+    );
+    return;
+  }
 
   // Network-first for API calls (always try to get fresh data)
   if (url.hostname.includes('amazonaws.com') || url.pathname.startsWith('/auth/')) {
