@@ -102,6 +102,13 @@
 <body>
     <div id="toast-container" style="position:fixed; top:20px; right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
     
+    <!-- Network Status Indicator -->
+    <div id="networkStatus" style="position:fixed; top:20px; left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px;">
+        <div id="statusDot" style="width:8px; height:8px; border-radius:50%; background:var(--green);"></div>
+        <span id="statusText">Online</span>
+        <span id="pendingCount" style="background:var(--accent); padding:2px 6px; border-radius:4px; font-size:0.8em; display:none;">0</span>
+    </div>
+    
     <div id="loadingOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:none; align-items:center; justify-content:center;">
         <div style="text-align:center;">
             <div style="border:4px solid #333; border-top:4px solid var(--accent); border-radius:50%; width:50px; height:50px; animation:spin 1s linear infinite; margin:0 auto;"></div>
@@ -340,6 +347,218 @@
         let allRawItems = [];
         let logPage = 1;
         const logPageSize = 25;
+        let db = null; // IndexedDB instance
+        let isSyncing = false;
+
+        // ==================== OFFLINE PWA SUPPORT ====================
+        
+        // Initialize IndexedDB for offline mutation queue
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('CalorieTrackerDB', 1);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve(db);
+                };
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('pendingMutations')) {
+                        const objectStore = db.createObjectStore('pendingMutations', { keyPath: 'id', autoIncrement: true });
+                        objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                        objectStore.createIndex('uuid', 'uuid', { unique: true });
+                    }
+                };
+            });
+        }
+
+        // Add mutation to offline queue
+        async function queueMutation(mutation) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['pendingMutations'], 'readwrite');
+                const store = transaction.objectStore('pendingMutations');
+                
+                // Add client-side UUID for idempotency
+                mutation.uuid = crypto.randomUUID();
+                mutation.timestamp = Date.now();
+                
+                const request = store.add(mutation);
+                request.onsuccess = () => {
+                    updatePendingCount();
+                    resolve(request.result);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Get all pending mutations
+        async function getPendingMutations() {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['pendingMutations'], 'readonly');
+                const store = transaction.objectStore('pendingMutations');
+                const request = store.getAll();
+                
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Remove mutation from queue
+        async function removeMutation(id) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['pendingMutations'], 'readwrite');
+                const store = transaction.objectStore('pendingMutations');
+                const request = store.delete(id);
+                
+                request.onsuccess = () => {
+                    updatePendingCount();
+                    resolve();
+                };
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Update pending count indicator
+        async function updatePendingCount() {
+            try {
+                const pending = await getPendingMutations();
+                const count = pending.length;
+                const badge = document.getElementById('pendingCount');
+                
+                if (count > 0) {
+                    badge.textContent = count;
+                    badge.style.display = 'block';
+                } else {
+                    badge.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Error updating pending count:', e);
+            }
+        }
+
+        // Sync pending mutations with server
+        async function syncPendingMutations() {
+            if (isSyncing || !navigator.onLine) return;
+            
+            try {
+                isSyncing = true;
+                const pending = await getPendingMutations();
+                
+                if (pending.length === 0) {
+                    isSyncing = false;
+                    return;
+                }
+                
+                // Validate auth token before syncing
+                if (!isAuthValid()) {
+                    showToast('Auth expired - please log in to sync', 'exclamation-triangle');
+                    isSyncing = false;
+                    return;
+                }
+                
+                showToast(`Syncing ${pending.length} pending entries...`, 'sync');
+                
+                let successCount = 0;
+                let failCount = 0;
+                
+                // Process mutations in order
+                for (const mutation of pending) {
+                    try {
+                        // Check if mutation is too old (7 days)
+                        const age = Date.now() - mutation.timestamp;
+                        if (age > 7 * 24 * 60 * 60 * 1000) {
+                            console.warn('Skipping mutation older than 7 days:', mutation);
+                            await removeMutation(mutation.id);
+                            failCount++;
+                            continue;
+                        }
+                        
+                        // Replay mutation
+                        const res = await fetch(`${API_BASE}${mutation.endpoint}`, {
+                            method: mutation.method,
+                            headers: mutation.headers,
+                            body: mutation.body
+                        });
+                        
+                        if (res.ok) {
+                            await removeMutation(mutation.id);
+                            successCount++;
+                        } else {
+                            failCount++;
+                            console.error('Sync failed for mutation:', mutation, res.status);
+                        }
+                    } catch (e) {
+                        failCount++;
+                        console.error('Error syncing mutation:', mutation, e);
+                    }
+                }
+                
+                if (successCount > 0) {
+                    showToast(`Synced ${successCount} entries ✓`, 'check-circle');
+                    loadDashboard(); // Refresh data
+                }
+                if (failCount > 0) {
+                    showToast(`${failCount} entries failed to sync`, 'exclamation-triangle');
+                }
+                
+            } catch (e) {
+                console.error('Sync error:', e);
+                showToast('Sync error - will retry later', 'exclamation-triangle');
+            } finally {
+                isSyncing = false;
+            }
+        }
+
+        // Update network status indicator
+        function updateNetworkStatus(online) {
+            const indicator = document.getElementById('networkStatus');
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            
+            if (online) {
+                dot.style.background = 'var(--green)';
+                text.textContent = 'Online';
+                setTimeout(() => indicator.style.display = 'none', 3000);
+                syncPendingMutations(); // Auto-sync on reconnect
+            } else {
+                dot.style.background = 'var(--red)';
+                text.textContent = 'Offline';
+                indicator.style.display = 'flex';
+            }
+        }
+
+        // Auth token management (24h expiry)
+        function generateAuthToken() {
+            const token = {
+                value: crypto.randomUUID(),
+                expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24 hours
+            };
+            localStorage.setItem('cal_auth_token', JSON.stringify(token));
+            return token;
+        }
+
+        function getAuthToken() {
+            const stored = localStorage.getItem('cal_auth_token');
+            return stored ? JSON.parse(stored) : null;
+        }
+
+        function isAuthValid() {
+            const token = getAuthToken();
+            if (!token) return false;
+            if (Date.now() > token.expiresAt) {
+                localStorage.removeItem('cal_auth_token');
+                return false;
+            }
+            return true;
+        }
+
+        function clearAuth() {
+            localStorage.removeItem('cal_auth_token');
+        }
+
+        // ==================== END OFFLINE SUPPORT ====================
 
         // Helper function to convert YYYY-MM-DD to DD-MM format
         function formatDateDDMM(isoDate) {
@@ -482,9 +701,17 @@
                 if (res.ok) {
                     document.getElementById('authOverlay').style.display = 'none';
                     document.getElementById('app').classList.add('authenticated');
-                    sessionStorage.setItem('cal_auth', pass); // Session-only storage
+                    
+                    // Generate auth token with 24h expiry (stored in localStorage)
+                    generateAuthToken();
+                    
                     loadMeals(); // Initial load only after auth
                     fetchGoals();
+                    
+                    // Sync any pending offline mutations
+                    if (navigator.onLine) {
+                        syncPendingMutations();
+                    }
                 } else {
                     errorEl.innerText = "Incorrect Password";
                 }
@@ -493,19 +720,53 @@
             }
         }
 
-        // Auto-login if previously authenticated (session-only)
-        window.addEventListener('load', () => {
+        // Auto-login if previously authenticated and token valid
+        window.addEventListener('load', async () => {
             document.getElementById('logDate').valueAsDate = new Date();
-            const saved = sessionStorage.getItem('cal_auth');
-            if (saved) {
-                document.getElementById('passInput').value = saved;
-                checkAuth();
+            
+            // Initialize IndexedDB
+            try {
+                await initDB();
+                updatePendingCount();
+            } catch (e) {
+                console.error('Failed to initialize IndexedDB:', e);
             }
             
-            // PWA support - register service worker (placeholder for future offline caching)
+            // Check if auth token is valid
+            if (isAuthValid()) {
+                document.getElementById('authOverlay').style.display = 'none';
+                document.getElementById('app').classList.add('authenticated');
+                loadMeals();
+                fetchGoals();
+                
+                // Sync on load if online
+                if (navigator.onLine) {
+                    syncPendingMutations();
+                }
+            }
+            
+            // Register service worker for offline support
             if ('serviceWorker' in navigator) {
-                // For now, just check support. Add sw.js file later if you want offline functionality
-                console.log('PWA-ready: Add to Home Screen available');
+                try {
+                    const registration = await navigator.serviceWorker.register('/sw.js');
+                    console.log('Service Worker registered:', registration);
+                } catch (e) {
+                    console.error('Service Worker registration failed:', e);
+                }
+            }
+            
+            // Network status listeners
+            window.addEventListener('online', () => {
+                updateNetworkStatus(true);
+            });
+            
+            window.addEventListener('offline', () => {
+                updateNetworkStatus(false);
+            });
+            
+            // Show initial network status if offline
+            if (!navigator.onLine) {
+                updateNetworkStatus(false);
             }
         });
 
@@ -791,19 +1052,51 @@
                 return;
             }
 
+            // Check pending mutation queue size (max 100 entries)
+            const pending = await getPendingMutations();
+            if (pending.length >= 100) {
+                showToast('Queue full - please sync first', 'exclamation-triangle');
+                return;
+            }
+
+            const payload = { 
+                type, 
+                value: parseFloat(val), 
+                protein: parseFloat(pro || 0), 
+                note, 
+                time: customTime,
+                date: selectedDate 
+            };
+
+            // If offline or auth token expired, queue mutation
+            if (!navigator.onLine || !isAuthValid()) {
+                try {
+                    await queueMutation({
+                        endpoint: '/log',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                        body: JSON.stringify(payload),
+                        displayInfo: `${type} entry: ${val} cals`
+                    });
+                    showToast('Saved offline - will sync later', 'clock');
+                    document.querySelectorAll('.card input').forEach(i => {
+                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
+                    });
+                    return;
+                } catch (e) {
+                    showToast('Failed to queue offline', 'exclamation-triangle');
+                    console.error(e);
+                    return;
+                }
+            }
+
+            // Online - submit immediately
             try {
                 showLoading();
                 const res = await fetch(`${API_BASE}/log`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                    body: JSON.stringify({ 
-                        type, 
-                        value: parseFloat(val), 
-                        protein: parseFloat(pro || 0), 
-                        note, 
-                        time: customTime,
-                        date: selectedDate 
-                    })
+                    body: JSON.stringify(payload)
                 });
                 hideLoading();
                 if (res.ok) { 
@@ -816,8 +1109,23 @@
                 }
             } catch (e) {
                 hideLoading();
-                showToast('Network error - please try again', 'exclamation-triangle');
-                console.error(e);
+                // If network error, queue for offline
+                try {
+                    await queueMutation({
+                        endpoint: '/log',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                        body: JSON.stringify(payload),
+                        displayInfo: `${type} entry: ${val} cals`
+                    });
+                    showToast('Network error - saved offline', 'clock');
+                    document.querySelectorAll('.card input').forEach(i => {
+                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
+                    });
+                } catch (queueError) {
+                    showToast('Failed to save', 'exclamation-triangle');
+                    console.error(queueError);
+                }
             }
         }
 
