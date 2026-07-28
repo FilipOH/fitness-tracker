@@ -1093,19 +1093,6 @@
                 return;
             }
 
-            // Check pending mutation queue size (max 100 entries)
-            let pending = [];
-            try {
-                pending = await getPendingMutations();
-                if (pending.length >= 100) {
-                    showToast('Queue full - please sync first', 'exclamation-triangle');
-                    return;
-                }
-            } catch (e) {
-                console.error('Error checking queue size:', e);
-                // Continue - we'll try to queue anyway
-            }
-
             const payload = { 
                 type, 
                 value: parseFloat(val), 
@@ -1115,11 +1102,77 @@
                 date: selectedDate 
             };
 
-            // If offline or auth token expired, queue mutation
-            if (!navigator.onLine || !isAuthValid()) {
+            // Check if offline or auth invalid FIRST (before checking queue)
+            const isOffline = !navigator.onLine;
+            const authValid = isAuthValid();
+            
+            if (isOffline || !authValid) {
+                // Update network status UI if offline
+                if (isOffline) {
+                    updateNetworkStatus(false);
+                }
+                
                 try {
                     if (!db) {
                         throw new Error('Offline storage not available - please check browser settings');
+                    }
+                    
+                    // Check pending mutation queue size (max 100 entries)
+                    const pending = await getPendingMutations();
+                    if (pending.length >= 100) {
+                        showToast('Queue full - please sync first', 'exclamation-triangle');
+                        return;
+                    }
+                    
+                    await queueMutation({
+                        endpoint: '/log',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                        body: JSON.stringify(payload),
+                        displayInfo: `${type} entry: ${val} cals`
+                    });
+                    showToast(isOffline ? 'Saved offline - will sync later' : 'Saved - auth expired, will sync on login', 'clock');
+                    document.querySelectorAll('.card input').forEach(i => {
+                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
+                    });
+                    return;
+                } catch (e) {
+                    showToast('Failed to queue offline: ' + (e.message || 'Unknown error'), 'exclamation-triangle');
+                    console.error('Offline queue error:', e);
+                    return;
+                }
+            }
+
+            // Online - submit immediately with timeout
+            showLoading();
+            try {
+                // Create abort controller for 10s timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const res = await fetch(`${API_BASE}/log`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (res.ok) { 
+                    showToast('Entry Saved'); 
+                    document.querySelectorAll('.card input').forEach(i => {
+                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
+                    });
+                } else {
+                    showToast('Failed to save entry', 'exclamation-triangle');
+                }
+            } catch (e) {
+                // If network error or timeout, queue for offline
+                console.log('Network error caught:', e.name, e.message);
+                try {
+                    if (!db) {
+                        throw new Error('Offline storage not available');
                     }
                     await queueMutation({
                         endpoint: '/log',
@@ -1132,50 +1185,12 @@
                     document.querySelectorAll('.card input').forEach(i => {
                         if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
                     });
-                    return;
-                } catch (e) {
-                    showToast('Failed to queue offline: ' + (e.message || 'Unknown error'), 'exclamation-triangle');
-                    console.error('Offline queue error:', e);
-                    return;
-                }
-            }
-
-            // Online - submit immediately
-            try {
-                showLoading();
-                const res = await fetch(`${API_BASE}/log`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                    body: JSON.stringify(payload)
-                });
-                hideLoading();
-                if (res.ok) { 
-                    showToast('Entry Saved'); 
-                    document.querySelectorAll('.card input').forEach(i => {
-                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
-                    });
-                } else {
-                    showToast('Failed to save entry', 'exclamation-triangle');
-                }
-            } catch (e) {
-                hideLoading();
-                // If network error, queue for offline
-                try {
-                    await queueMutation({
-                        endpoint: '/log',
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                        body: JSON.stringify(payload),
-                        displayInfo: `${type} entry: ${val} cals`
-                    });
-                    showToast('Network error - saved offline', 'clock');
-                    document.querySelectorAll('.card input').forEach(i => {
-                        if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
-                    });
                 } catch (queueError) {
-                    showToast('Failed to save', 'exclamation-triangle');
-                    console.error(queueError);
+                    showToast('Failed to save: ' + (queueError.message || 'Unknown error'), 'exclamation-triangle');
+                    console.error('Queue error:', queueError);
                 }
+            } finally {
+                hideLoading();
             }
         }
 
