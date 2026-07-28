@@ -1766,6 +1766,11 @@
         }
 
         async function loadMeals() {
+            // Skip if not authenticated (prevents errors when switching tabs before login)
+            if (!API_KEY || !isAuthValid()) {
+                return;
+            }
+            
             try {
                 const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
                 if (!res.ok) throw new Error('Failed to load meals');
@@ -2139,6 +2144,11 @@
         }
 
         async function loadDashboard() {
+            // Skip if not authenticated (prevents errors when switching tabs before login)
+            if (!API_KEY || !isAuthValid()) {
+                return;
+            }
+            
             try {
                 showLoading();
                 const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
