@@ -1655,7 +1655,7 @@
             const isSaved = document.getElementById('isSavedMeal').checked;
             document.getElementById('mealSelectRow').style.display = isSaved ? 'block' : 'none';
             document.getElementById('manualFoodFields').style.display = isSaved ? 'none' : 'block';
-            if (isSaved) {
+            if (isSaved && typeof $ !== 'undefined') {
                 $('#mealSelect').select2({
                     placeholder: "Search for a meal...",
                     allowClear: true,
@@ -1782,8 +1782,12 @@
             
             try {
                 const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
-                if (!res.ok) throw new Error('Failed to load meals');
+                if (!res.ok) {
+                    console.error('Meals fetch failed:', res.status, res.statusText);
+                    throw new Error(`Failed to load meals: ${res.status}`);
+                }
                 const data = await res.json();
+                console.log('Meals loaded:', data.meals?.length || 0, 'items');
                 meals = data.meals || [];
                 
             // Filter based on current view (for display in Meals tab only)
@@ -1808,11 +1812,13 @@
             
             if (filteredMeals.length === 0) {
                 list.innerHTML += `<p style="text-align:center; color:var(--sub); padding:20px;">No ${currentMealType === 'food' ? 'quick foods' : 'saved meals'} yet. Create one above!</p>`;
-                // Still bind events even if no filtered meals
-                $('#mealSelect').off('change').on('change', applyMeal);
-                $('#mealPortions').off('input').on('input', () => {
-                    if ($('#mealSelect').val()) applyMeal();
-                });
+                // Still bind events even if no filtered meals (only if jQuery loaded)
+                if (typeof $ !== 'undefined') {
+                    $('#mealSelect').off('change').on('change', applyMeal);
+                    $('#mealPortions').off('input').on('input', () => {
+                        if ($('#mealSelect').val()) applyMeal();
+                    });
+                }
                 return;
             }
             
@@ -1846,15 +1852,17 @@
                 list.appendChild(mealCard);
             });
             
-                // Re-bind change event for Select2
-                $('#mealSelect').off('change').on('change', applyMeal);
-                // Re-bind portion change
-                $('#mealPortions').off('input').on('input', () => {
-                    if ($('#mealSelect').val()) applyMeal();
-                });
+                // Re-bind change event for Select2 (only if jQuery loaded)
+                if (typeof $ !== 'undefined') {
+                    $('#mealSelect').off('change').on('change', applyMeal);
+                    // Re-bind portion change
+                    $('#mealPortions').off('input').on('input', () => {
+                        if ($('#mealSelect').val()) applyMeal();
+                    });
+                }
             } catch (e) {
-                showToast('Failed to load items', 'exclamation-triangle');
-                console.error(e);
+                console.error('loadMeals() error:', e);
+                showToast(`Failed to load items: ${e.message}`, 'exclamation-triangle');
             }
         }
 
@@ -1961,7 +1969,10 @@
         }
 
         function applyMeal() {
-            const mealName = $('#mealSelect').val();
+            // Fallback if jQuery/Select2 not loaded yet
+            const mealName = typeof $ !== 'undefined' 
+                ? $('#mealSelect').val() 
+                : document.getElementById('mealSelect').value;
             const meal = meals.find(m => m.MealName === mealName);
             if (meal) {
                 const portions = parseFloat(document.getElementById('mealPortions').value) || 1;
