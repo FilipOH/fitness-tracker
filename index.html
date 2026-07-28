@@ -1385,6 +1385,24 @@
                 date: selectedDate 
             };
 
+            // Create appropriate display message for offline queue
+            let displayInfo = `${type} entry`;
+            if (type === 'FOOD') displayInfo = `${type} entry: ${val} cals`;
+            else if (type === 'EXERCISE') {
+                const exerciseName = note === 'bench' ? 'Bench Press' : note === 'squat' ? 'Squat' : note === '5k' ? '5K Run' : 'Pullups';
+                if (note === '5k') {
+                    const mins = Math.floor(val / 60);
+                    const secs = val % 60;
+                    displayInfo = `${exerciseName}: ${mins}:${secs.toString().padStart(2, '0')}`;
+                } else if (note === 'pullups') {
+                    displayInfo = `${exerciseName}: ${val} reps`;
+                } else {
+                    displayInfo = `${exerciseName}: ${val} kg`;
+                }
+            } else if (type === 'WEIGHT') displayInfo = `Weight: ${val} kg`;
+            else if (type === 'SLEEP') displayInfo = `Sleep score: ${val}`;
+            else if (type === 'ACTIVE') displayInfo = `Active: ${val} cals burned`;
+
             // Check if offline or auth invalid FIRST (before checking queue)
             const isOffline = !navigator.onLine;
             const authValid = isAuthValid();
@@ -1412,7 +1430,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
                         body: JSON.stringify(payload),
-                        displayInfo: `${type} entry: ${val} cals`
+                        displayInfo: displayInfo
                     });
                     showToast(isOffline ? 'Saved offline - will sync later' : 'Saved - auth expired, will sync on login', 'clock');
                     document.querySelectorAll('.card input').forEach(i => {
@@ -1479,7 +1497,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
                         body: JSON.stringify(payload),
-                        displayInfo: `${type} entry: ${val} cals`
+                        displayInfo: displayInfo
                     });
                     
                     const message = isTimeout 
