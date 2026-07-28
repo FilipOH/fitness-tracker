@@ -100,10 +100,10 @@
     </style>
 </head>
 <body>
-    <div id="toast-container" style="position:fixed; top:20px; right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
+    <div id="toast-container" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
     
     <!-- Network Status Indicator -->
-    <div id="networkStatus" style="position:fixed; top:20px; left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px;">
+    <div id="networkStatus" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px;">
         <div id="statusDot" style="width:8px; height:8px; border-radius:50%; background:var(--green);"></div>
         <span id="statusText">Online</span>
         <span id="pendingCount" style="background:var(--accent); padding:2px 6px; border-radius:4px; font-size:0.8em; display:none;">0</span>
@@ -1157,6 +1157,7 @@
             document.getElementById('d-out').innerText = t.out.toFixed(0);
             document.getElementById('d-net').innerText = t.net.toFixed(0);
             document.getElementById('d-w').innerText = t.weight !== "--" ? t.weight + "kg" : "--";
+            document.getElementById('d-sleep').innerText = t.sleep !== 0 ? t.sleep : "--";
             
             // Today's Protein Gauge
             const proToday = t.pro.toFixed(0);
