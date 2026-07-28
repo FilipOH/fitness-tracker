@@ -1385,11 +1385,13 @@
                 if (res.ok) {
                     // SECURITY: Extract API key from password file (not visible in source code)
                     const data = await res.json();
+                    console.log('Auth file response:', data); // Debug logging
                     if (data.apiKey) {
                         API_KEY = data.apiKey;
                         localStorage.setItem('cal_api_key', API_KEY);
                     } else {
-                        errorEl.innerText = "Invalid authentication file";
+                        console.error('Auth file missing apiKey field:', data);
+                        errorEl.innerText = "Invalid authentication file - please clear browser cache";
                         return;
                     }
                     
