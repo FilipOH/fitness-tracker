@@ -751,6 +751,20 @@
             return applicable[0] || goals; // Fallback to current if no match
         }
 
+        // Helper: Get goals that were active for a specific date
+        function getGoalsForDate(date) {
+            if (!goalHistory || goalHistory.length === 0) {
+                return goals; // Fallback to current goals if no history
+            }
+            
+            // Find the most recent goal that was effective on or before this date
+            const applicable = goalHistory
+                .filter(g => g.effectiveDate <= date)
+                .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
+            
+            return applicable[0] || goals; // Fallback to current if no match
+        }
+
         function exportCSV() {
             const timestamp = new Date().toISOString().split('T')[0];
             
@@ -1349,13 +1363,14 @@
             document.getElementById('d-w').innerText = t.weight !== "--" ? t.weight + "kg" : "--";
             document.getElementById('d-sleep').innerText = t.sleep !== 0 ? t.sleep : "--";
             
-            // Today's Protein Gauge
+            // Today's Protein Gauge (uses historical goals for today)
+            const todayGoals = getGoalsForDate(today);
             const proToday = t.pro.toFixed(0);
             document.getElementById('d-pro-today').innerText = proToday + 'g';
             const proIndicatorEl = document.getElementById('protein-indicator');
             const proGaugeEl = document.getElementById('protein-gauge');
             if (proToday > 0) {
-                const proMet = parseFloat(proToday) >= goals.protein;
+                const proMet = parseFloat(proToday) >= todayGoals.protein;
                 proIndicatorEl.innerHTML = proMet ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
                 proGaugeEl.style.borderColor = proMet ? 'var(--green)' : 'var(--red)';
             } else {
@@ -1363,18 +1378,29 @@
                 proGaugeEl.style.borderColor = '#333';
             }
             
-            // Average Sleep Gauge (Score 0-100)
-            const sleepDays = Object.values(dayRollup).filter(d => d.sleep > 0);
-            const avgSleep = sleepDays.length > 0 
-                ? (sleepDays.reduce((sum, d) => sum + d.sleep, 0) / sleepDays.length).toFixed(0)
+            // Average Sleep Gauge (Score 0-100) - uses historical goals per day
+            const sleepDaysWithDates = uniqueDays.filter(d => dayRollup[d].sleep > 0).map(d => ({
+                date: d,
+                score: dayRollup[d].sleep
+            }));
+            
+            const avgSleep = sleepDaysWithDates.length > 0 
+                ? (sleepDaysWithDates.reduce((sum, d) => sum + d.score, 0) / sleepDaysWithDates.length).toFixed(0)
                 : "--";
             document.getElementById('d-sleep-avg').innerText = avgSleep;
             const sleepIndicatorEl = document.getElementById('sleep-indicator');
             const sleepGaugeEl = document.getElementById('sleep-gauge');
             
             if (avgSleep !== "--") {
-                const score = parseFloat(avgSleep);
-                const isGood = score >= goals.sleep;
+                // Calculate success rate: how many days met their historical sleep goal
+                const sleepSuccessCount = sleepDaysWithDates.filter(day => {
+                    const dayGoals = getGoalsForDate(day.date);
+                    return day.score >= dayGoals.sleep;
+                }).length;
+                const sleepSuccessRate = sleepSuccessCount / sleepDaysWithDates.length;
+                
+                // Show success if >50% of days met their goals
+                const isGood = sleepSuccessRate >= 0.5;
                 sleepIndicatorEl.innerHTML = isGood ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
                 sleepGaugeEl.style.borderColor = isGood ? 'var(--green)' : 'var(--red)';
             } else {
