@@ -441,6 +441,39 @@
             });
         }
         
+        // Get current date/time in UK timezone (handles GMT/BST automatically)
+        function getUKDateTime() {
+            const now = new Date();
+            
+            // Use Intl API to get UK timezone date/time (handles daylight savings)
+            const ukDateFormatter = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Europe/London',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+            
+            const ukTimeFormatter = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Europe/London',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            
+            // Get date parts and format as YYYY-MM-DD
+            const dateParts = ukDateFormatter.formatToParts(now);
+            const day = dateParts.find(p => p.type === 'day').value;
+            const month = dateParts.find(p => p.type === 'month').value;
+            const year = dateParts.find(p => p.type === 'year').value;
+            const dateStr = `${year}-${month}-${day}`;
+            
+            // Get time and format as HH:MM:SS
+            const timeStr = ukTimeFormatter.format(now);
+            
+            return { date: dateStr, time: timeStr };
+        }
+        
         // Initialize IndexedDB for offline mutation queue
         function initDB() {
             return new Promise((resolve, reject) => {
@@ -763,7 +796,8 @@
                         document.getElementById('g-gym').value = goals.gym;
                         
                         // Set effective date to today by default for new changes
-                        document.getElementById('g-effective-date').value = new Date().toISOString().split('T')[0];
+                        const ukDate = getUKDateTime();
+                        document.getElementById('g-effective-date').value = ukDate.date;
                     }
                 }
                 hideLoading();
@@ -775,7 +809,8 @@
 
         async function saveGoals() {
             try {
-                const effectiveDate = document.getElementById('g-effective-date').value || new Date().toISOString().split('T')[0];
+                const ukDate = getUKDateTime();
+                const effectiveDate = document.getElementById('g-effective-date').value || ukDate.date;
                 
                 const newGoals = {
                     weeklyNet: parseFloat(document.getElementById('g-weekly-net').value),
@@ -835,7 +870,8 @@
         }
 
         function exportCSV() {
-            const timestamp = new Date().toISOString().split('T')[0];
+            const ukDate = getUKDateTime();
+            const timestamp = ukDate.date;
             
             // Export 1: Activity Logs
             if (allRawItems && allRawItems.length > 0) {
@@ -920,7 +956,8 @@
 
         // Auto-login if previously authenticated and token valid
         window.addEventListener('load', async () => {
-            document.getElementById('logDate').valueAsDate = new Date();
+            const ukDate = getUKDateTime();
+            document.getElementById('logDate').value = ukDate.date;
             
             // Initialize IndexedDB
             try {
@@ -977,7 +1014,10 @@
             el.classList.add('active');
             if (id === 'dashTab' || id === 'rawTab') loadDashboard();
             if (id === 'mealsTab' || id === 'inputTab') loadMeals();
-            if (id === 'inputTab') document.getElementById('logDate').valueAsDate = new Date();
+            if (id === 'inputTab') {
+                const ukDate = getUKDateTime();
+                document.getElementById('logDate').value = ukDate.date;
+            }
             if (id === 'goalsTab') fetchGoals();
         }
 
@@ -1348,7 +1388,8 @@
         }
 
         async function logQuickFood(name, calories, protein) {
-            const today = new Date().toISOString().split('T')[0];
+            const ukDate = getUKDateTime();
+            const today = ukDate.date;
             const payload = {
                 type: 'FOOD',
                 value: parseFloat(calories),
@@ -1599,7 +1640,8 @@
                 const items = data.items.filter(i => i.PK !== 'CONFIG');
                 allRawItems = items; // Store for logs view
                 const baseline = data.baseline;
-            const today = new Date().toISOString().split('T')[0];
+            const ukDate = getUKDateTime();
+            const today = ukDate.date;
             const uniqueDays = [...new Set(items.map(i => i.PK))].filter(d => d !== 'CONFIG').sort().reverse();
             const dayRollup = {};
             uniqueDays.forEach(d => {
