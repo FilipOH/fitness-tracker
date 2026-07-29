@@ -1,0 +1,9 @@
+name = "fitness-api-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "fitness-tracker-test"
+database_id = "8662cff2-8386-4cd1-8b10-cccb8e61f5b3"
