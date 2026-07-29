@@ -2187,7 +2187,8 @@
                     meal.Ingredients.forEach(ing => {
                         const div = document.createElement('div');
                         div.className = 'ing-row';
-                        div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ing.desc || ''}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
+                        const desc = ing.desc || ing.name || '';
+                        div.innerHTML = `<input type="text" placeholder="Ingredient" value="${desc}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
                         list.appendChild(div);
                     });
                 } else {
