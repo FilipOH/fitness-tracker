@@ -1510,11 +1510,18 @@
             // Register service worker for offline support
             if ('serviceWorker' in navigator) {
                 try {
-                    const registration = await navigator.serviceWorker.register('/sw.js');
-                    console.log('Service Worker registered:', registration);
+                    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                    console.log('Service Worker registered with scope:', registration.scope);
+                    
+                    // Wait for service worker to be ready
+                    await navigator.serviceWorker.ready;
+                    console.log('Service Worker ready and controlling page');
                 } catch (e) {
                     console.error('Service Worker registration failed:', e);
+                    showToast('Offline mode unavailable - service worker failed', 'exclamation-triangle');
                 }
+            } else {
+                console.warn('Service Worker not supported in this browser');
             }
             
             // Network status listeners

@@ -3,6 +3,7 @@
   "short_name": "Progress",
   "description": "Ultra-cheap serverless fitness tracking",
   "start_url": "/index.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#121212",
   "theme_color": "#00adb5",

@@ -6,6 +6,7 @@ from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 import pyotp
 import secrets
+import uuid
 
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
@@ -212,11 +213,14 @@ def handle_post(event, api_key):
             time_str = now.strftime('%H:%M:%S')
 
         # Logic: Some types should overwrite for the day (Active Cals, Weight, Sleep)
-        # while others (Food, Gym) should allow multiple entries.
+        # while others (Food, Gym, Exercise) should allow multiple entries with unique keys.
         if data_type in ['ACTIVE', 'WEIGHT', 'SLEEP']:
             sk = f"{data_type}#DAILY"
         else:
-            sk = f"{data_type}#{time_str}"
+            # FOOD, GYM, EXERCISE can have multiple entries at same time
+            # Add short UUID to prevent collisions
+            unique_id = str(uuid.uuid4())[:8]  # First 8 chars of UUID for brevity
+            sk = f"{data_type}#{time_str}#{unique_id}"
 
         item = {
             'PK': date_str,
