@@ -1,5 +1,5 @@
 // Service Worker for Offline PWA Support
-const CACHE_NAME = 'calorie-tracker-v4';
+const CACHE_NAME = 'calorie-tracker-v5';
 const urlsToCache = [
   './',
   './index.html',
@@ -73,13 +73,20 @@ self.addEventListener('fetch', event => {
   }
 
   // Network-first for API calls (always try to get fresh data)
-  if (url.hostname.includes('amazonaws.com') || url.pathname.startsWith('/auth/')) {
+  const isApiRequest = url.hostname.includes('workers.dev') || 
+                       url.pathname.startsWith('/auth/') ||
+                       url.pathname.includes('/data') ||
+                       url.pathname.includes('/log') ||
+                       url.pathname.includes('/meals') ||
+                       url.pathname.includes('/config');
+
+  if (isApiRequest) {
     event.respondWith(
       fetch(request)
         .then(response => {
-          // Clone response before caching
+          // Cache the latest response for offline use
           const responseClone = response.clone();
-          if (response.ok) {
+          if (response.ok && request.method === 'GET') {
             caches.open(CACHE_NAME).then(cache => {
               cache.put(request, responseClone);
             });

@@ -12,7 +12,7 @@ const corsHeaders = {
 };
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     // Handle CORS preflight early
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders, status: 204 });
@@ -25,18 +25,29 @@ export default {
       if (!(response instanceof Response)) {
         return new Response(JSON.stringify({ error: 'Internal Server Error: Invalid response type' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
         });
       }
 
-      // Add CORS headers to the response
-      const newHeaders = new Headers(response.headers);
-      Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
+      // CLONING THE RESPONSE HEADERS IS CRITICAL
+      // Using new Headers(response.headers) can sometimes skip the spread if the object is sealed
+      const finalHeaders = new Headers();
+      // 1. Add CORS headers first
+      Object.entries(corsHeaders).forEach(([k, v]) => finalHeaders.set(k, v));
+      // 2. Add original headers (careful not to override CORS if the handler tried to set them)
+      response.headers.forEach((v, k) => {
+        if (!k.toLowerCase().startsWith('access-control-')) {
+          finalHeaders.set(k, v);
+        }
+      });
       
       return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
-        headers: newHeaders
+        headers: finalHeaders
       });
     } catch (err) {
       console.error('Fatal Worker Error:', err);
@@ -177,15 +188,27 @@ async function handleApiRequest(request, env) {
 
   // POST /log
   if (path === '/log' && method === 'POST') {
-    const data = await request.json().catch(() => null);
-    if (!data) return jsonResponse({ error: 'Invalid JSON payload' }, 400);
+    let data;
+    try {
+      data = await request.json();
+    } catch (e) {
+      console.error('POST /log JSON Parse Error:', e);
+      return jsonResponse({ error: 'Invalid or empty JSON payload' }, 400);
+    }
+    
+    if (!data) return jsonResponse({ error: 'Data is missing' }, 400);
 
     const { date, time, type, foodName, note, calories, value, protein, exercise, weight, reps } = data;
     if (!date) return jsonResponse({ error: 'Date is required' }, 400);
 
     const finalFoodName = foodName || note || '';
     const finalCalories = calories !== undefined ? calories : (value || 0);
-    const finalTime = time || new Date().toISOString().split('T')[1].split('.')[0];
+    
+    // Ensure time is never null/empty for the database
+    let finalTime = time;
+    if (!finalTime || finalTime.trim() === '') {
+      finalTime = new Date().toISOString().split('T')[1].split('.')[0];
+    }
 
     try {
       if (type === 'FOOD') {

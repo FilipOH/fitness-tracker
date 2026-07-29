@@ -561,13 +561,16 @@
         }
 
         // Cache helpers
-        async function saveLogsToCache(items) {
+        async function saveLogsToCache(items, clearFirst = false) {
             if (!db) return;
             const transaction = db.transaction(['logsCache'], 'readwrite');
             const store = transaction.objectStore('logsCache');
-            // We clear and re-save for simplicity, or we could merge
-            // For logs, it's safer to just store all items as a single blob if we want to be simple,
-            // but let's store them individually.
+            
+            if (clearFirst) {
+                store.clear();
+            }
+            
+            // We store them individually.
             items.forEach(item => {
                 // Ensure unique key
                 item.PK_SK = `${item.PK}_${item.SK}`;
@@ -581,15 +584,28 @@
                 const transaction = db.transaction(['logsCache'], 'readonly');
                 const store = transaction.objectStore('logsCache');
                 const request = store.getAll();
-                request.onsuccess = () => resolve(request.result);
+                request.onsuccess = () => {
+                    // Sort items by PK (date) and SK (time) descending
+                    const items = request.result || [];
+                    items.sort((a, b) => {
+                        if (a.PK !== b.PK) return b.PK.localeCompare(a.PK);
+                        return b.SK.localeCompare(a.SK);
+                    });
+                    resolve(items);
+                };
                 request.onerror = () => resolve([]);
             });
         }
 
-        async function saveMealsToCache(meals) {
+        async function saveMealsToCache(meals, clearFirst = true) {
             if (!db) return;
             const transaction = db.transaction(['mealsCache'], 'readwrite');
             const store = transaction.objectStore('mealsCache');
+            
+            if (clearFirst) {
+                store.clear();
+            }
+            
             meals.forEach(meal => store.put(meal));
         }
 
@@ -1854,6 +1870,10 @@
                 });
                 hideLoading();
                 showToast(isQuickFood ? 'Quick Food Saved' : 'Meal Saved');
+                
+                // Refresh the meals list and cache
+                await loadMeals();
+                
                 // Clear form
                 document.getElementById('m-name').value = '';
                 document.getElementById('m-protein').value = '';
@@ -1863,7 +1883,6 @@
                     document.getElementById('m-portions').value = '1';
                     document.getElementById('ingredientsList').innerHTML = '<div class="ing-row"><input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals"></div>';
                 }
-                loadMeals();
             } catch (e) {
                 hideLoading();
                 showToast('Failed to save', 'exclamation-triangle');
@@ -2250,6 +2269,9 @@
                     document.querySelectorAll('.card input').forEach(i => {
                         if (i.type !== 'checkbox' && i.id !== 'logDate') i.value = '';
                     });
+                    
+                    // CRITICAL: Refresh the dashboard and cache after successful save
+                    await loadDashboard();
                 } else {
                     showToast('Failed to save entry', 'exclamation-triangle');
                 }
@@ -2350,8 +2372,8 @@
                 allRawItems = items; // Store for logs view
                 const baseline = data.baseline;
                 
-                // Save to cache
-                await saveLogsToCache(items);
+                // Save to cache (clear old cache to remove deleted items)
+                await saveLogsToCache(items, true);
                 
                 renderDashboardData(items, baseline);
             } catch (e) {
