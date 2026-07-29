@@ -1,23 +1,31 @@
-# Serverless Fitness Tracker
+# Serverless Fitness Tracker (Cloudflare Edition)
 
-An ultra-cheap, serverless, iPhone-compatible fitness tracking workflow.
+An ultra-cheap, serverless, iPhone-compatible fitness tracking workflow migrated from AWS to Cloudflare.
 
 ## Features
-- **S3-Hosted Dashboard**: Mobile-optimized UI with Chart.js visualization.
-- **DynamoDB Backend**: Fast, scalable storage for calories, weight, gym, and sleep scores.
-- **AWS Lambda API**: Python backend handling data routing and meal template management.
-- **iOS Shortcut Integration**: Log food, workouts, and health data directly from Apple Watch/iPhone via API Gateway.
-- **Security**: Password-protected dashboard and API Key validation.
-- **Advanced Metrics**: 4-day rolling weight average, weekly goal tracking, and Apple Watch Sleep Score analytics.
+- **GitHub Pages Dashboard**: Mobile-optimized PWA UI with Chart.js visualization.
+- **Cloudflare D1 Backend**: SQLite-based relational storage for calories, weight, gym, and exercise logs.
+- **Cloudflare Workers API**: Modern JS backend handling data routing, authentication (TOTP), and meal management.
+- **MFA Security**: TOTP-based Multi-Factor Authentication for secure access.
+- **iOS Shortcut Integration**: Log food, workouts, and health data directly from Apple Watch/iPhone via the Worker API.
+- **Advanced Metrics**: 7-day rolling weight average, weekly goal tracking, and progress visualization.
 
 ## Tech Stack
 - **Frontend**: HTML5/CSS3, JavaScript (Vanilla + jQuery/Select2), Chart.js, Font Awesome.
-- **Backend**: AWS Lambda (Python), API Gateway v2.
-- **Database**: Amazon DynamoDB.
-- **Deployment**: AWS SAM (Serverless Application Model).
+- **Backend**: Cloudflare Workers (JavaScript/ESM).
+- **Database**: Cloudflare D1 (SQLite).
+- **Hosting**: GitHub Pages (`/docs` folder).
 
-## Deployment
-1. Build and deploy the backend:
+## Project Structure
+- `fitness-worker/`: The Cloudflare Worker API source.
+- `docs/`: The PWA frontend hosted on GitHub Pages.
+- `aws-archive/`: Legacy AWS infrastructure and data exports.
+- `*.sql`: D1 Database schema and setup scripts.
+
+## Setup
+1. **Database**: Initialize D1 using `auth-setup.sql` and `cloudflare-d1-schema.sql`.
+2. **Worker**: Deploy the API with `npx wrangler deploy` from the `fitness-worker` directory.
+3. **Frontend**: The UI in `docs/` is configured to point to the `fitness-api-worker` URL.
     ```bash
     sam build
     sam deploy --guided

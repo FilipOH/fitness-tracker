@@ -74,6 +74,9 @@ CREATE TABLE saved_meals (
   meal_name TEXT NOT NULL,
   calories INTEGER NOT NULL,
   protein INTEGER NOT NULL DEFAULT 0,
+  portions INTEGER DEFAULT 1,
+  is_quick_food INTEGER DEFAULT 0,
+  ingredients TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   UNIQUE(user_id, meal_name) -- Prevent duplicate meal names per user

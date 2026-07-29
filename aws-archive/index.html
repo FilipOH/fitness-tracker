@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#00adb5">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Progress">
     <link rel="apple-touch-icon" href="app-icon2.svg">
@@ -377,9 +376,8 @@
     <div id="rawTab" class="tab-content">
         <h1 style="font-size: 1.4em; color: var(--accent);">History</h1>
         
-        <div class="card" style="padding:10px; text-align:center; margin-bottom: 15px; display: flex; gap: 10px;">
-            <button onclick="exportCSV()" style="background:var(--accent); border:none; color:white; padding:12px 20px; border-radius:8px; font-size:0.9em; font-weight:bold; flex: 2;"><i class="fas fa-download"></i> Export Data</button>
-            <button onclick="forceRefreshApp()" style="background:#444; border:none; color:white; padding:12px 20px; border-radius:8px; font-size:0.9em; font-weight:bold; flex: 1;" title="Clear cache & reload"><i class="fas fa-sync-alt"></i> Refresh</button>
+        <div class="card" style="padding:10px; text-align:center; margin-bottom: 15px;">
+            <button onclick="exportCSV()" style="background:var(--accent); border:none; color:white; padding:12px 20px; border-radius:8px; font-size:0.9em; font-weight:bold; width:100%;"><i class="fas fa-download"></i> Export All Data (CSV)</button>
         </div>
         
         <div style="display: flex; background: #222; border-radius: 8px; margin-bottom: 15px; padding: 4px;">
@@ -461,11 +459,11 @@
     </div> <!-- Close #app -->
 
     <script>
-        // API Key is stored in D1 database (not visible in source code)
+        // API Key is stored in password file on S3 (not visible in source code)
         // Retrieved after successful password authentication
-        // To rotate key: update D1 auth_config table
+        // To rotate key: update password file + Lambda env var
         let API_KEY = localStorage.getItem('cal_api_key') || null;
-        const API_BASE = 'https://fitness-api-worker.fhezza314.workers.dev';
+        const API_BASE = 'https://6nn0jlysw7.execute-api.eu-west-2.amazonaws.com';
         let meals = [];
         let chartInstance = null;
         let calorieChartInstance = null;
@@ -529,10 +527,10 @@
             return { date: dateStr, time: timeStr };
         }
         
-        // Initialize IndexedDB for offline mutation queue and local data cache
+        // Initialize IndexedDB for offline mutation queue
         function initDB() {
             return new Promise((resolve, reject) => {
-                const request = indexedDB.open('CalorieTrackerDB', 2);
+                const request = indexedDB.open('CalorieTrackerDB', 1);
                 
                 request.onerror = () => reject(request.error);
                 request.onsuccess = () => {
@@ -542,65 +540,12 @@
                 
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
-                    // Pending mutations for sync
                     if (!db.objectStoreNames.contains('pendingMutations')) {
                         const objectStore = db.createObjectStore('pendingMutations', { keyPath: 'id', autoIncrement: true });
                         objectStore.createIndex('timestamp', 'timestamp', { unique: false });
                         objectStore.createIndex('uuid', 'uuid', { unique: true });
                     }
-                    // Local cache for logs
-                    if (!db.objectStoreNames.contains('logsCache')) {
-                        db.createObjectStore('logsCache', { keyPath: 'PK_SK' });
-                    }
-                    // Local cache for meals
-                    if (!db.objectStoreNames.contains('mealsCache')) {
-                        db.createObjectStore('mealsCache', { keyPath: 'MealName' });
-                    }
                 };
-            });
-        }
-
-        // Cache helpers
-        async function saveLogsToCache(items) {
-            if (!db) return;
-            const transaction = db.transaction(['logsCache'], 'readwrite');
-            const store = transaction.objectStore('logsCache');
-            // We clear and re-save for simplicity, or we could merge
-            // For logs, it's safer to just store all items as a single blob if we want to be simple,
-            // but let's store them individually.
-            items.forEach(item => {
-                // Ensure unique key
-                item.PK_SK = `${item.PK}_${item.SK}`;
-                store.put(item);
-            });
-        }
-
-        async function getLogsFromCache() {
-            if (!db) return [];
-            return new Promise((resolve) => {
-                const transaction = db.transaction(['logsCache'], 'readonly');
-                const store = transaction.objectStore('logsCache');
-                const request = store.getAll();
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve([]);
-            });
-        }
-
-        async function saveMealsToCache(meals) {
-            if (!db) return;
-            const transaction = db.transaction(['mealsCache'], 'readwrite');
-            const store = transaction.objectStore('mealsCache');
-            meals.forEach(meal => store.put(meal));
-        }
-
-        async function getMealsFromCache() {
-            if (!db) return [];
-            return new Promise((resolve) => {
-                const transaction = db.transaction(['mealsCache'], 'readonly');
-                const store = transaction.objectStore('mealsCache');
-                const request = store.getAll();
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve([]);
             });
         }
 
@@ -1386,33 +1331,6 @@
             return applicable[0] || goals; // Fallback to current if no match
         }
 
-        async function forceRefreshApp() {
-            if (!confirm('This will clear the app cache and reload everything. Continue?')) return;
-            
-            try {
-                // Clear Service Worker caches
-                if ('caches' in window) {
-                    const cacheNames = await caches.keys();
-                    await Promise.all(cacheNames.map(name => caches.delete(name)));
-                }
-
-                // Unregister Service Workers
-                if ('serviceWorker' in navigator) {
-                    const registrations = await navigator.serviceWorker.getRegistrations();
-                    for (let registration of registrations) {
-                        await registration.unregister();
-                    }
-                }
-
-                // Hard reload (bypassing browser cache)
-                window.location.reload(true);
-            } catch (e) {
-                console.error('Refresh failed:', e);
-                // Fallback to simple reload
-                window.location.reload(true);
-            }
-        }
-
         function exportCSV() {
             const ukDate = getUKDateTime();
             const timestamp = ukDate.date;
@@ -1473,23 +1391,19 @@
             const errorEl = document.getElementById('authError');
             
             try {
-                // SECURITY: POST password in request body (NOT in URL!)
-                const res = await fetch(`${API_BASE}/auth`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: pass })
-                });
-                
+                // We fetch a file that only exists if the password is correct path-wise
+                // This is a simple S3-native way to do "password protection" without a backend
+                const res = await fetch(`auth/${pass}.json`);
                 if (res.ok) {
-                    // SECURITY: Extract API key from D1 database (not visible in source code)
+                    // SECURITY: Extract API key from password file (not visible in source code)
                     const data = await res.json();
-                    console.log('Auth response:', data); // Debug logging
+                    console.log('Auth file response:', data); // Debug logging
                     if (data.apiKey) {
                         API_KEY = data.apiKey;
                         localStorage.setItem('cal_api_key', API_KEY);
                     } else {
-                        console.error('Auth response missing apiKey field:', data);
-                        errorEl.innerText = "Invalid authentication response";
+                        console.error('Auth file missing apiKey field:', data);
+                        errorEl.innerText = "Invalid authentication file - please clear browser cache";
                         return;
                     }
                     
@@ -1885,12 +1799,6 @@
                 return;
             }
             
-            // Optimistically load from cache first
-            const cachedMeals = await getMealsFromCache();
-            if (cachedMeals && cachedMeals.length > 0) {
-                renderMealsData(cachedMeals);
-            }
-
             try {
                 const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
                 if (!res.ok) {
@@ -1899,20 +1807,8 @@
                 }
                 const data = await res.json();
                 console.log('Meals loaded:', data.meals?.length || 0, 'items');
-                const mealsList = data.meals || [];
+                meals = data.meals || [];
                 
-                // Save to cache
-                await saveMealsToCache(mealsList);
-                
-                renderMealsData(mealsList);
-            } catch (e) {
-                console.error('Meals fetch error:', e);
-            }
-        }
-
-        function renderMealsData(mealsList) {
-            meals = mealsList;
-            
             // Filter based on current view (for display in Meals tab only)
             const filteredMeals = meals.filter(m => {
                 const isQuick = m.isQuickFood || false;
@@ -1921,16 +1817,13 @@
             
             // Populate dropdown with ALL non-quick foods (for Log tab)
             const select = document.getElementById('mealSelect');
-            if (select) {
-                select.innerHTML = '<option value="">Search for a meal...</option>';
-                meals.forEach(m => {
-                    if (!m.isQuickFood) {
-                        const perPortion = (m.Calories / m.Portions).toFixed(0);
-                        select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
-                    }
-                });
-            }
-
+            select.innerHTML = '<option value="">Search for a meal...</option>';
+            meals.forEach(m => {
+                if (!m.isQuickFood) {
+                    const perPortion = (m.Calories / m.Portions).toFixed(0);
+                    select.innerHTML += `<option value="${m.MealName}">${m.MealName} (${perPortion} cal)</option>`;
+                }
+            });
             
             // Display filtered meals in Meals tab
             const list = document.getElementById('savedMealsList');
@@ -2054,9 +1947,6 @@
                 date: today
             };
             
-            // Optimistically update
-            await optimisticUpdate(payload);
-            
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -2071,25 +1961,18 @@
 
                 if (res.ok) {
                     showToast(`Logged: ${name}`, 'check');
-                    loadDashboard();
+                    loadData();
                 } else {
                     throw new Error('Failed to log');
                 }
             } catch (e) {
                 if (e.name === 'AbortError') {
-                    showToast('Request timeout - saved offline', 'exclamation-triangle');
+                    showToast('Request timeout - will retry when online', 'exclamation-triangle');
+                    await queueMutation('POST', '/log', payload);
                 } else {
-                    showToast('Saved offline (will sync)', 'exclamation-triangle');
+                    showToast('Queued for sync', 'exclamation-triangle');
+                    await queueMutation('POST', '/log', payload);
                 }
-                
-                await queueMutation({
-                    endpoint: '/log',
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-                    body: JSON.stringify(payload),
-                    displayInfo: `Logged: ${name}`,
-                    id: generateUUID() // Added explicit ID for IndexedDB
-                });
                 updatePendingCount();
             }
         }
@@ -2169,9 +2052,6 @@
                 date: selectedDate 
             };
 
-            // Optimistically update UI and Cache
-            await optimisticUpdate(payload);
-
             // Create appropriate display message for offline queue
             let displayInfo = `${type} entry`;
             if (type === 'FOOD') displayInfo = `${type} entry: ${val} cals`;
@@ -2217,8 +2097,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
                         body: JSON.stringify(payload),
-                        displayInfo: displayInfo,
-                        id: generateUUID()
+                        displayInfo: displayInfo
                     });
                     showToast(isOffline ? 'Saved offline - will sync later' : 'Saved - auth expired, will sync on login', 'clock');
                     document.querySelectorAll('.card input').forEach(i => {
@@ -2285,8 +2164,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
                         body: JSON.stringify(payload),
-                        displayInfo: displayInfo,
-                        id: generateUUID()
+                        displayInfo: displayInfo
                     });
                     
                     const message = isTimeout 
@@ -2304,47 +2182,12 @@
             }
         }
 
-        async function optimisticUpdate(payload) {
-            // Map the frontend payload to the DB structure used in memory (allRawItems)
-            const newItem = {
-                PK: payload.date,
-                SK: payload.time || `${new Date().toTimeString().split(' ')[0]}#${generateUUID().substring(0,8)}`,
-                Type: payload.type,
-                Value: payload.value,
-                Protein: payload.protein,
-                Note: payload.note
-            };
-            
-            // Update in-memory
-            allRawItems.unshift(newItem); // Add to beginning
-            
-            // Save to cache
-            await saveLogsToCache([newItem]);
-            
-            // Re-render UI based on current view
-            if (document.getElementById('dashTab').classList.contains('active')) {
-                // Get current baseline if possible, else 2000
-                renderDashboardData(allRawItems, 2000);
-            }
-            if (document.getElementById('rawTab').classList.contains('active')) {
-                // Always update the summary analysis since it powers parts of the UI
-                renderDashboardData(allRawItems, 2000);
-                renderDetailedLogs();
-            }
-        }
-
         async function loadDashboard() {
             // Skip if not authenticated (prevents errors when switching tabs before login)
             if (!API_KEY || !isAuthValid()) {
                 return;
             }
             
-            // Optimistically load from cache first
-            const cachedItems = await getLogsFromCache();
-            if (cachedItems && cachedItems.length > 0) {
-                renderDashboardData(cachedItems, 2000); // Baseline default
-            }
-
             try {
                 showLoading();
                 const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
@@ -2353,22 +2196,6 @@
                 const items = data.items.filter(i => i.PK !== 'CONFIG');
                 allRawItems = items; // Store for logs view
                 const baseline = data.baseline;
-                
-                // Save to cache
-                await saveLogsToCache(items);
-                
-                renderDashboardData(items, baseline);
-            } catch (e) {
-                console.error('Dashboard fetch error:', e);
-                // If we failed online but have cache, we already rendered it.
-                // If not, we might want to show a message.
-            } finally {
-                hideLoading();
-            }
-        }
-
-        // Extracted rendering logic from loadDashboard
-        function renderDashboardData(items, baseline) {
             const ukDate = getUKDateTime();
             const today = ukDate.date;
             const uniqueDays = [...new Set(items.map(i => i.PK))].filter(d => d !== 'CONFIG').sort().reverse();
@@ -2435,8 +2262,6 @@
                 sleepIndicatorEl.innerHTML = "--";
                 sleepGaugeEl.style.borderColor = "#333";
             }
-        }
-
             
             let totalNet = 0; Object.values(dayRollup).forEach(d => totalNet += d.net);
             document.getElementById('d-loss').innerText = ((totalNet * (1 / 7.7)) / 1000).toFixed(2) + ' kg';
