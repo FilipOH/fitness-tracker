@@ -1,5 +1,6 @@
 // Cloudflare Worker - Fitness Tracker API
 // Replaces AWS Lambda with D1 SQL database
+import { verify } from 'otplib';
 
 const API_KEY = 'my_secret_token_123'; // Temporary - will move to secrets
 
@@ -77,6 +78,112 @@ export default {
           return jsonResponse({ 
             error: 'Invalid password' 
           }, 401, corsHeaders);
+        }
+      }
+      
+      // POST /verify-totp - Verify TOTP/MFA code with rate limiting
+      if (url.pathname === '/verify-totp' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { code, deviceFingerprint } = body;
+          
+          if (!code) {
+            return jsonResponse({ error: 'Code required' }, 400, corsHeaders);
+          }
+          
+          const fingerprint = deviceFingerprint || 'unknown';
+          const now = new Date();
+          
+          // SECURITY: Check rate limiting - max 3 failed attempts per 5 minutes
+          const rateLimitCheck = await env.DB.prepare(`
+            SELECT failed_attempts, last_attempt, locked_until
+            FROM totp_rate_limit
+            WHERE device_fingerprint = ?
+          `).bind(fingerprint).first();
+          
+          if (rateLimitCheck) {
+            const lockedUntil = rateLimitCheck.locked_until ? new Date(rateLimitCheck.locked_until) : null;
+            
+            // Check if currently locked out
+            if (lockedUntil && now < lockedUntil) {
+              const remainingSeconds = Math.ceil((lockedUntil - now) / 1000);
+              return jsonResponse({ 
+                error: `Too many failed attempts. Locked for ${remainingSeconds} more seconds.`,
+                locked_until: lockedUntil.toISOString()
+              }, 429, corsHeaders);
+            }
+            
+            // Check if within 5 minute window and exceeded attempts
+            const lastAttempt = new Date(rateLimitCheck.last_attempt);
+            const timeSinceLastAttempt = (now - lastAttempt) / 1000 / 60; // minutes
+            
+            if (timeSinceLastAttempt < 5 && rateLimitCheck.failed_attempts >= 3) {
+              return jsonResponse({ 
+                error: 'Too many attempts. Please wait 5 minutes.' 
+              }, 429, corsHeaders);
+            }
+          }
+          
+          // Get TOTP secret from D1
+          const secretRow = await env.DB.prepare(
+            'SELECT config_value FROM auth_config WHERE config_key = ?'
+          ).bind('totp_secret').first();
+          
+          if (!secretRow || !secretRow.config_value) {
+            return jsonResponse({ error: 'TOTP not configured' }, 500, corsHeaders);
+          }
+          
+          // Verify the TOTP code using otplib functional API
+          // Returns VerifyResult { valid: boolean, delta?: number }
+          const result = await verify({ 
+            token: code, 
+            secret: secretRow.config_value 
+          });
+          
+          if (result.valid) {
+            // SUCCESS: Clear rate limit record
+            await env.DB.prepare(
+              'DELETE FROM totp_rate_limit WHERE device_fingerprint = ?'
+            ).bind(fingerprint).run();
+            
+            return jsonResponse({ 
+              success: true, 
+              message: 'TOTP verified' 
+            }, 200, corsHeaders);
+          } else {
+            // FAIL: Increment rate limit counter
+            const currentAttempts = rateLimitCheck?.failed_attempts || 0;
+            const newAttempts = (rateLimitCheck && 
+              (now - new Date(rateLimitCheck.last_attempt)) / 1000 / 60 < 5) 
+              ? currentAttempts + 1 
+              : 1;
+            
+            // Lock for 5 minutes if this is the 3rd failed attempt
+            const lockedUntil = newAttempts >= 3 
+              ? new Date(now.getTime() + 5 * 60 * 1000).toISOString() 
+              : null;
+            
+            await env.DB.prepare(`
+              INSERT INTO totp_rate_limit (device_fingerprint, failed_attempts, last_attempt, locked_until)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(device_fingerprint) DO UPDATE SET
+                failed_attempts = excluded.failed_attempts,
+                last_attempt = excluded.last_attempt,
+                locked_until = excluded.locked_until
+            `).bind(fingerprint, newAttempts, now.toISOString(), lockedUntil).run();
+            
+            return jsonResponse({ 
+              success: false, 
+              error: 'Invalid code',
+              attempts_remaining: Math.max(0, 3 - newAttempts)
+            }, 401, corsHeaders);
+          }
+        } catch (error) {
+          console.error('TOTP verification error:', error);
+          return jsonResponse({ 
+            error: 'Verification failed', 
+            details: error.message 
+          }, 500, corsHeaders);
         }
       }
       
@@ -434,6 +541,7 @@ export default {
         error: 'Not found',
         available_endpoints: [
           'POST /auth',
+          'POST /verify-totp',
           'GET /health',
           'GET /test?date=YYYY-MM-DD',
           'POST /log',

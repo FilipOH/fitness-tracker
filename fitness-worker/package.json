@@ -7,7 +7,14 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
-  "keywords": ["cloudflare", "workers", "d1"],
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "d1"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "otplib": "^13.4.1"
+  }
 }
