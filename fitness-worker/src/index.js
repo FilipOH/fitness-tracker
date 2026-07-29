@@ -48,6 +48,38 @@ export default {
         }, 200, corsHeaders);
       }
       
+      // GET /auth - Password authentication (replaces S3 file lookup)
+      if (url.pathname.startsWith('/auth/') && request.method === 'GET') {
+        // Extract password from URL path: /auth/PASSWORD.json
+        const pathParts = url.pathname.split('/');
+        const filename = pathParts[2]; // "PASSWORD.json"
+        const password = filename?.replace('.json', '');
+        
+        if (!password) {
+          return jsonResponse({ error: 'Invalid request' }, 400, corsHeaders);
+        }
+        
+        // Check password against D1
+        const storedPassword = await env.DB.prepare(
+          'SELECT config_value FROM auth_config WHERE config_key = ?'
+        ).bind('password').first();
+        
+        if (storedPassword && storedPassword.config_value === password) {
+          // Password correct - return API key (same format as S3 file)
+          const apiKey = await env.DB.prepare(
+            'SELECT config_value FROM auth_config WHERE config_key = ?'
+          ).bind('api_key').first();
+          
+          return jsonResponse({
+            status: 'authenticated',
+            apiKey: apiKey?.config_value || API_KEY
+          }, 200, corsHeaders);
+        } else {
+          // Password incorrect - return 404 (same as S3 behavior when file doesn't exist)
+          return new Response('Not Found', { status: 404, headers: corsHeaders });
+        }
+      }
+      
       // POST /log - Log food/gym/exercise entry
       if (url.pathname === '/log' && request.method === 'POST') {
         // Validate API key
