@@ -154,17 +154,24 @@ export default {
         
         foodLogs.results?.forEach(log => {
           items.push({
+            PK: log.date,  // For compatibility with frontend
+            SK: `FOOD#${log.time}`,  // For compatibility
+            logId: log.log_id,  // For delete operations
             date: log.date,
             type: 'FOOD',
             time: log.time,
             foodName: log.food_name,
             calories: log.calories,
-            protein: log.protein
+            protein: log.protein,
+            Note: log.food_name  // Alias for compatibility
           });
         });
         
         gymLogs.results?.forEach(log => {
           items.push({
+            PK: log.date,
+            SK: `GYM#${log.time}`,
+            logId: log.log_id,
             date: log.date,
             type: 'GYM',
             time: log.time
@@ -173,6 +180,9 @@ export default {
         
         exerciseLogs.results?.forEach(log => {
           items.push({
+            PK: log.date,
+            SK: `EXERCISE#${log.time}`,
+            logId: log.log_id,
             date: log.date,
             type: 'EXERCISE',
             time: log.time,
@@ -232,15 +242,210 @@ export default {
         return jsonResponse({ status: 'success' }, 200, corsHeaders);
       }
       
+      // DELETE /meals - Delete a saved meal
+      if (url.pathname === '/meals' && request.method === 'DELETE') {
+        const apiKey = request.headers.get('X-API-Key');
+        if (!apiKey || apiKey !== API_KEY) {
+          return jsonResponse({ error: 'Invalid API key' }, 401, corsHeaders);
+        }
+        
+        const mealName = url.searchParams.get('name');
+        if (!mealName) {
+          return jsonResponse({ error: 'Missing name parameter' }, 400, corsHeaders);
+        }
+        
+        const userId = 1;
+        await env.DB.prepare('DELETE FROM saved_meals WHERE user_id = ? AND meal_name = ?')
+          .bind(userId, mealName).run();
+        
+        return jsonResponse({ status: 'success' }, 200, corsHeaders);
+      }
+      
+      // DELETE /log - Delete a log entry
+      if (url.pathname === '/log' && request.method === 'DELETE') {
+        const apiKey = request.headers.get('X-API-Key');
+        if (!apiKey || apiKey !== API_KEY) {
+          return jsonResponse({ error: 'Invalid API key' }, 401, corsHeaders);
+        }
+        
+        const logId = url.searchParams.get('id');
+        const type = url.searchParams.get('type');
+        
+        if (!logId || !type) {
+          return jsonResponse({ error: 'Missing id or type parameter' }, 400, corsHeaders);
+        }
+        
+        const userId = 1;
+        
+        // Delete from appropriate table based on type
+        if (type === 'FOOD') {
+          await env.DB.prepare('DELETE FROM food_logs WHERE user_id = ? AND log_id = ?')
+            .bind(userId, logId).run();
+        } else if (type === 'GYM') {
+          await env.DB.prepare('DELETE FROM gym_logs WHERE user_id = ? AND log_id = ?')
+            .bind(userId, logId).run();
+        } else if (type === 'EXERCISE') {
+          await env.DB.prepare('DELETE FROM exercise_logs WHERE user_id = ? AND log_id = ?')
+            .bind(userId, logId).run();
+        } else if (type === 'ACTIVE' || type === 'WEIGHT' || type === 'SLEEP') {
+          await env.DB.prepare('DELETE FROM daily_metrics WHERE user_id = ? AND metric_type = ?')
+            .bind(userId, type).run();
+        }
+        
+        return jsonResponse({ status: 'success' }, 200, corsHeaders);
+      }
+      
+      // POST /config - Save goals configuration
+      if (url.pathname === '/config' && request.method === 'POST') {
+        const apiKey = request.headers.get('X-API-Key');
+        if (!apiKey || apiKey !== API_KEY) {
+          return jsonResponse({ error: 'Invalid API key' }, 401, corsHeaders);
+        }
+        
+        const body = await request.json();
+        const { goals, effectiveDate } = body;
+        const userId = 1;
+        
+        // Store each goal with effective date for historical tracking
+        const date = effectiveDate || new Date().toISOString().split('T')[0];
+        const goalsJson = JSON.stringify(goals);
+        
+        await env.DB.prepare(`
+          INSERT INTO user_config (user_id, config_key, config_value, effective_date)
+          VALUES (?, 'goals', ?, ?)
+          ON CONFLICT(user_id, config_key, effective_date) DO UPDATE SET
+            config_value = excluded.config_value
+        `).bind(userId, goalsJson, date).run();
+        
+        return jsonResponse({ status: 'success' }, 200, corsHeaders);
+      }
+      
+      // GET /config - Get goals configuration with history
+      if (url.pathname === '/config' && request.method === 'GET') {
+        const apiKey = request.headers.get('X-API-Key') || url.searchParams.get('key');
+        if (!apiKey || apiKey !== API_KEY) {
+          return jsonResponse({ error: 'Invalid API key' }, 401, corsHeaders);
+        }
+        
+        const userId = 1;
+        
+        // Get all goals history ordered by date
+        const result = await env.DB.prepare(`
+          SELECT config_value, effective_date 
+          FROM user_config 
+          WHERE user_id = ? AND config_key = 'goals'
+          ORDER BY effective_date DESC
+        `).bind(userId).all();
+        
+        if (!result.results || result.results.length === 0) {
+          // Return default goals if none exist
+          return jsonResponse({
+            goals: {
+              weeklyNet: -3850,
+              weeklyComparison: 'less',
+              protein: 80,
+              sleep: 75,
+              gym: 2
+            },
+            history: []
+          }, 200, corsHeaders);
+        }
+        
+        // Parse the most recent goals
+        const currentGoals = JSON.parse(result.results[0].config_value);
+        
+        // Build history array
+        const history = result.results.map(row => {
+          const goals = JSON.parse(row.config_value);
+          return {
+            ...goals,
+            effectiveDate: row.effective_date
+          };
+        });
+        
+        return jsonResponse({
+          goals: currentGoals,
+          history: history
+        }, 200, corsHeaders);
+      }
+      
+      // POST /trust-device - Create trusted device token
+      if (url.pathname === '/trust-device' && request.method === 'POST') {
+        const apiKey = request.headers.get('X-API-Key');
+        if (!apiKey || apiKey !== API_KEY) {
+          return jsonResponse({ error: 'Invalid API key' }, 401, corsHeaders);
+        }
+        
+        const body = await request.json();
+        const deviceFingerprint = body.deviceFingerprint;
+        
+        if (!deviceFingerprint) {
+          return jsonResponse({ error: 'Device fingerprint required' }, 400, corsHeaders);
+        }
+        
+        const userId = 1;
+        // Generate secure token
+        const deviceToken = crypto.randomUUID();
+        const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(); // 90 days
+        
+        await env.DB.prepare(`
+          INSERT INTO device_tokens_v2 (device_fingerprint, user_id, device_token, expires_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(device_fingerprint) DO UPDATE SET
+            device_token = excluded.device_token,
+            expires_at = excluded.expires_at,
+            created_at = CURRENT_TIMESTAMP
+        `).bind(deviceFingerprint, userId, deviceToken, expiresAt).run();
+        
+        return jsonResponse({
+          success: true,
+          deviceToken: deviceToken,
+          expiresAt: expiresAt
+        }, 200, corsHeaders);
+      }
+      
+      // GET /trust-device - Check if device is trusted
+      if (url.pathname === '/trust-device' && request.method === 'GET') {
+        const deviceFingerprint = url.searchParams.get('deviceFingerprint');
+        const deviceToken = url.searchParams.get('deviceToken');
+        
+        if (!deviceFingerprint || !deviceToken) {
+          return jsonResponse({ trusted: false }, 200, corsHeaders);
+        }
+        
+        const result = await env.DB.prepare(`
+          SELECT device_token, expires_at 
+          FROM device_tokens_v2 
+          WHERE device_fingerprint = ?
+        `).bind(deviceFingerprint).first();
+        
+        if (!result) {
+          return jsonResponse({ trusted: false }, 200, corsHeaders);
+        }
+        
+        // Check token matches and hasn't expired
+        const isValid = result.device_token === deviceToken && 
+                       new Date(result.expires_at) > new Date();
+        
+        return jsonResponse({ trusted: isValid }, 200, corsHeaders);
+      }
+      
       return jsonResponse({
         error: 'Not found',
         available_endpoints: [
+          'POST /auth',
           'GET /health',
           'GET /test?date=YYYY-MM-DD',
           'POST /log',
+          'DELETE /log?id=ID&type=TYPE',
           'GET /data?date=YYYY-MM-DD',
           'GET /meals',
-          'POST /meals'
+          'POST /meals',
+          'DELETE /meals?name=NAME',
+          'POST /config',
+          'GET /config',
+          'POST /trust-device',
+          'GET /trust-device?deviceFingerprint=FP&deviceToken=TOKEN'
         ]
       }, 404, corsHeaders);
       
