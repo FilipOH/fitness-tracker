@@ -15,6 +15,7 @@
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --accent: #00adb5; --sub: #888; --green: #28a745; --red: #dc3545; }
@@ -124,10 +125,48 @@
             from { opacity: 1; transform: translateX(0); }
             to { opacity: 0; transform: translateX(20px); }
         }
+
+        /* Barcode Scanner Modal */
+        #scannerOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 5000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #scannerContainer {
+            width: 90%;
+            max-width: 500px;
+            aspect-ratio: 1;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        .scanner-controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
     </style>
 </head>
 <body>
     <div id="toast-container" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
+    
+    <!-- Barcode Scanner Overlay -->
+    <div id="scannerOverlay">
+        <div id="scannerContainer"></div>
+        <div class="scanner-controls">
+            <button class="submit" onclick="stopScanner()" style="background:#444; width: 120px;">Cancel</button>
+        </div>
+        <p style="color:white; margin-top:15px; font-size:0.9em;">Point camera at barcode</p>
+    </div>
     
     <!-- Network Status Indicator (Clickable to sync) -->
     <div id="networkStatus" onclick="manualSync()" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 15px); left:20px; z-index:10000; background:rgba(30,30,30,0.95); color:white; padding:8px 12px; border-radius:8px; font-size:0.85em; display:none; align-items:center; gap:8px; cursor:pointer; transition:background 0.2s; user-select:none;" onmouseenter="this.style.background='rgba(50,50,50,0.95)'" onmouseleave="this.style.background='rgba(30,30,30,0.95)'">
@@ -220,6 +259,12 @@
                     <input type="number" id="mealPortions" placeholder="1.0" step="0.1" min="0.1" value="1">
                 </div>
                 <div id="manualFoodFields">
+                    <div class="form-row" style="margin-bottom: 20px;">
+                        <button onclick="startScanner()" style="background:#555; color:white; border:none; padding:12px; border-radius:8px; width:100%; display:flex; align-items:center; justify-content:center; gap:10px;">
+                            <i class="fas fa-barcode" style="font-size:1.2em;"></i>
+                            <span>Scan Barcode</span>
+                        </button>
+                    </div>
                     <div class="form-row">
                         <label>Calories</label>
                         <input type="number" id="foodCals" placeholder="e.g. 500" min="0" max="5000">
@@ -1985,13 +2030,14 @@
                     : '';
                 
                 mealCard.innerHTML = `
-                    <div>
+                    <div style="cursor:pointer; flex-grow:1;" onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')">
                         <strong style="color:var(--accent);">${m.MealName}</strong><br>
                         ${subtitle}
                     </div>
                     <div style="display:flex; gap:10px;">
                         ${logButton}
-                        <button onclick="deleteMeal('${m.MealName}')" style="background:none; border:none; color:#ff4444; cursor:pointer;"><i class="fas fa-trash"></i></button>
+                        <button onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:var(--sub); cursor:pointer;" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button onclick="deleteMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:#ff4444; cursor:pointer;" title="Delete"><i class="fas fa-trash"></i></button>
                     </div>
                 `;
                 list.appendChild(mealCard);
@@ -2117,6 +2163,41 @@
                 headers: { 'x-api-key': API_KEY }
             });
             loadMeals();
+        }
+
+        function editMeal(name) {
+            const meal = meals.find(m => m.MealName === name);
+            if (!meal) return;
+            
+            // Switch view to match meal type
+            switchMealType(meal.isQuickFood ? 'food' : 'meal');
+            
+            // Fill form
+            document.getElementById('m-name').value = meal.MealName;
+            document.getElementById('m-protein').value = meal.Protein || '';
+            
+            if (meal.isQuickFood) {
+                document.getElementById('m-quickcals').value = meal.Calories;
+            } else {
+                document.getElementById('m-portions').value = meal.Portions;
+                const list = document.getElementById('ingredientsList');
+                list.innerHTML = ''; // Clear
+                
+                if (meal.Ingredients && meal.Ingredients.length > 0) {
+                    meal.Ingredients.forEach(ing => {
+                        const div = document.createElement('div');
+                        div.className = 'ing-row';
+                        div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ing.desc || ''}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
+                        list.appendChild(div);
+                    });
+                } else {
+                    addIngredientLine();
+                }
+            }
+            
+            // Scroll to top of form
+            document.getElementById('createTitle').scrollIntoView({ behavior: 'smooth' });
+            showToast('Loading ' + name + ' for editing', 'edit');
         }
 
         function applyMeal() {
@@ -2348,6 +2429,79 @@
                 // Always update the summary analysis since it powers parts of the UI
                 renderDashboardData(allRawItems, 2000);
                 renderDetailedLogs();
+            }
+        }
+
+        // ==================== BARCODE SCANNER LOGIC ====================
+        let html5QrCode = null;
+
+        async function startScanner() {
+            document.getElementById('scannerOverlay').style.display = 'flex';
+            html5QrCode = new Html5Qrcode("scannerContainer");
+            
+            const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+            
+            try {
+                await html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config, 
+                    onScanSuccess
+                );
+            } catch (err) {
+                console.error("Scanner error:", err);
+                showToast("Could not start camera", "exclamation-triangle");
+                stopScanner();
+            }
+        }
+
+        async function stopScanner() {
+            if (html5QrCode) {
+                try {
+                    await html5QrCode.stop();
+                } catch (e) {
+                    console.error("Error stopping scanner:", e);
+                }
+                html5QrCode = null;
+            }
+            document.getElementById('scannerOverlay').style.display = 'none';
+        }
+
+        async function onScanSuccess(decodedText, decodedResult) {
+            console.log(`Scan success: ${decodedText}`);
+            stopScanner();
+            showLoading();
+            
+            try {
+                // Open Food Facts API (Free & Open Source)
+                const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${decodedText}.json`);
+                const data = await res.json();
+                
+                if (data.status === 1) {
+                    const p = data.product;
+                    const name = p.product_name || "Unknown Product";
+                    const brand = p.brands ? ` (${p.brands})` : "";
+                    
+                    // Energy is usually in kcal or kJ. Prefers kcal.
+                    // OFF values are typically "per 100g"
+                    const energyKcal = p.nutriments['energy-kcal_100g'] || p.nutriments['energy_100g'];
+                    const protein100g = p.nutriments['protein_100g'] || 0;
+                    
+                    if (energyKcal) {
+                        document.getElementById('foodNote').value = name + brand;
+                        document.getElementById('foodCals').value = Math.round(energyKcal);
+                        document.getElementById('foodPro').value = Math.round(protein100g);
+                        showToast(`Found: ${name} (per 100g)`);
+                    } else {
+                        showToast("Product found, but no calorie data available", "exclamation-triangle");
+                    }
+                } else {
+                    showToast("Product not found in database", "exclamation-triangle");
+                }
+            } catch (e) {
+                console.error("OFF Lookup error:", e);
+                showToast("Error looking up product", "exclamation-triangle");
+            } finally {
+                hideLoading();
             }
         }
 
