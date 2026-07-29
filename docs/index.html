@@ -1391,8 +1391,13 @@
             const errorEl = document.getElementById('authError');
             
             try {
-                // Fetch from Worker API (not S3 anymore - now using D1 database)
-                const res = await fetch(`${API_BASE}/auth/${pass}.json`);
+                // SECURITY: POST password in request body (NOT in URL!)
+                const res = await fetch(`${API_BASE}/auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pass })
+                });
+                
                 if (res.ok) {
                     // SECURITY: Extract API key from D1 database (not visible in source code)
                     const data = await res.json();

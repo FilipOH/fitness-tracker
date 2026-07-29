@@ -48,15 +48,13 @@ export default {
         }, 200, corsHeaders);
       }
       
-      // GET /auth - Password authentication (replaces S3 file lookup)
-      if (url.pathname.startsWith('/auth/') && request.method === 'GET') {
-        // Extract password from URL path: /auth/PASSWORD.json
-        const pathParts = url.pathname.split('/');
-        const filename = pathParts[2]; // "PASSWORD.json"
-        const password = filename?.replace('.json', '');
+      // POST /auth - Secure password authentication (password in request body, NOT URL!)
+      if (url.pathname === '/auth' && request.method === 'POST') {
+        const body = await request.json();
+        const password = body.password;
         
         if (!password) {
-          return jsonResponse({ error: 'Invalid request' }, 400, corsHeaders);
+          return jsonResponse({ error: 'Password required' }, 400, corsHeaders);
         }
         
         // Check password against D1
@@ -65,7 +63,7 @@ export default {
         ).bind('password').first();
         
         if (storedPassword && storedPassword.config_value === password) {
-          // Password correct - return API key (same format as S3 file)
+          // Password correct - return API key
           const apiKey = await env.DB.prepare(
             'SELECT config_value FROM auth_config WHERE config_key = ?'
           ).bind('api_key').first();
@@ -75,8 +73,10 @@ export default {
             apiKey: apiKey?.config_value || API_KEY
           }, 200, corsHeaders);
         } else {
-          // Password incorrect - return 404 (same as S3 behavior when file doesn't exist)
-          return new Response('Not Found', { status: 404, headers: corsHeaders });
+          // Password incorrect - return 401 Unauthorized
+          return jsonResponse({ 
+            error: 'Invalid password' 
+          }, 401, corsHeaders);
         }
       }
       
