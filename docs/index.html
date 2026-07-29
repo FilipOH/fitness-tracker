@@ -1861,7 +1861,7 @@
                     document.getElementById('m-quickcals').value = '';
                 } else {
                     document.getElementById('m-portions').value = '1';
-                    document.getElementById('ingredientsList').innerHTML = '<div class=\"ing-row\"><input type=\"text\" placeholder=\"Ingredient\"><input type=\"text\" placeholder=\"Qty\"><input type=\"number\" placeholder=\"Cals\" class=\"ing-cals\"></div>';
+                    document.getElementById('ingredientsList').innerHTML = '<div class="ing-row"><input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals"></div>';
                 }
                 loadMeals();
             } catch (e) {
@@ -2431,9 +2431,7 @@
                 sleepIndicatorEl.innerHTML = "--";
                 sleepGaugeEl.style.borderColor = "#333";
             }
-        }
 
-            
             let totalNet = 0; Object.values(dayRollup).forEach(d => totalNet += d.net);
             document.getElementById('d-loss').innerText = ((totalNet * (1 / 7.7)) / 1000).toFixed(2) + ' kg';
 
@@ -2602,11 +2600,6 @@
             });
             
             hideLoading();
-            } catch (e) {
-                hideLoading();
-                showToast('Failed to load dashboard', 'exclamation-triangle');
-                console.error(e);
-            }
         }
         toggleFields();
         // Removed window.onload = loadMeals; as it's now handled by checkAuth

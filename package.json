@@ -1,0 +1,14 @@
+{
+  "name": "fitness-tracker",
+  "version": "1.0.0",
+  "description": "Fitness Tracker with automatic linting",
+  "main": "docs/index.html",
+  "scripts": {
+    "lint": "eslint \"docs/**/*.html\" \"fitness-worker/**/*.js\"",
+    "lint:fix": "eslint \"docs/**/*.html\" \"fitness-worker/**/*.js\" --fix"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-plugin-html": "^8.1.1"
+  }
+}
