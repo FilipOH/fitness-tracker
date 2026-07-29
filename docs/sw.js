@@ -9,6 +9,7 @@ const urlsToCache = [
   'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
   'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
   'https://cdn.jsdelivr.net/npm/chart.js',
+  'https://unpkg.com/html5-qrcode',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css'
 ];
 
