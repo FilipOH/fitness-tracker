@@ -1978,17 +1978,13 @@
                 list.appendChild(mealCard);
             });
             
-                // Re-bind change event for Select2 (only if jQuery loaded)
-                if (typeof $ !== 'undefined') {
-                    $('#mealSelect').off('change').on('change', applyMeal);
-                    // Re-bind portion change
-                    $('#mealPortions').off('input').on('input', () => {
-                        if ($('#mealSelect').val()) applyMeal();
-                    });
-                }
-            } catch (e) {
-                console.error('loadMeals() error:', e);
-                showToast(`Failed to load items: ${e.message}`, 'exclamation-triangle');
+            // Re-bind change event for Select2 (only if jQuery loaded)
+            if (typeof $ !== 'undefined') {
+                $('#mealSelect').off('change').on('change', applyMeal);
+                // Re-bind portion change
+                $('#mealPortions').off('input').on('input', () => {
+                    if ($('#mealSelect').val()) applyMeal();
+                });
             }
         }
 
