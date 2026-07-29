@@ -29,5 +29,6 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: '5c577942cabb36069967e1e7efed4b25'
           workingDirectory: 'fitness-worker'
           command: deploy
