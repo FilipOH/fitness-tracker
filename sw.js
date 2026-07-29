@@ -1,10 +1,10 @@
 // Service Worker for Offline PWA Support
-const CACHE_NAME = 'calorie-tracker-v3';
+const CACHE_NAME = 'calorie-tracker-v4';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/app-icon2.svg',
+  './',
+  './index.html',
+  './manifest.json',
+  './app-icon2.svg',
   'https://code.jquery.com/jquery-3.6.0.min.js',
   'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
   'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
