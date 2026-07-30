@@ -2866,44 +2866,46 @@
                 if (!name) return 0;
                 const n = name.toLowerCase();
                 const b = (brand || '').toLowerCase();
-                const q = queryStr.toLowerCase();
-                const qWords = q.split(/\s+/).filter(x => x);
+                // Clean input for better matching (ignore 's)
+                const qClean = queryStr.toLowerCase().replace(/'s/g, '');
+                const nClean = n.replace(/'s/g, '');
+                const bClean = b.replace(/'s/g, '');
+                const qWords = qClean.split(/\s+/).filter(x => x);
                 
                 let score = 0;
 
                 // 1. Exact Match (Highest bonus)
-                if (n === q) score += 5000;
+                if (nClean === qClean) score += 10000;
                 
                 // 2. Starts with query
-                if (n.startsWith(q)) score += 2000;
+                if (nClean.startsWith(qClean)) score += 5000;
 
                 // 2.5 Standalone word match (e.g. "Milk" as a full word vs "Milky")
-                const nameWords = n.split(/[^a-z0-9]/).filter(x => x);
-                if (qWords.every(qw => nameWords.includes(qw))) score += 1500;
+                const nameWords = nClean.split(/[^a-z0-9]/).filter(x => x);
+                if (qWords.every(qw => nameWords.includes(qw))) score += 4000;
 
                 // 3. Simple inclusion bonus
-                if (n.includes(q)) score += 500;
+                if (nClean.includes(qClean)) score += 1000;
 
                 // 4. Content match regardless of order (The "Maggi Noodle" fix)
-                if (qWords.every(w => n.includes(w) || b.includes(w))) {
-                    score += 300;
+                if (qWords.every(w => nClean.includes(w) || bClean.includes(w))) {
+                    score += 500;
                     // Extra bonus if all words are in the name specifically
-                    if (qWords.every(w => n.includes(w))) score += 200;
+                    if (qWords.every(w => nClean.includes(w))) score += 300;
                 }
 
-                // 5. Shortness bonus (Staples like "Milk" or "Banana" are shorter than complex products)
-                score += Math.max(0, 100 - n.length);
+                // 5. Shortness bonus (Higher for staples)
+                score += Math.max(0, 150 - n.length);
 
                 // 6. Brand match bonus
-                if (qWords.some(w => b.includes(w))) score += 100;
+                if (qWords.some(w => bClean.includes(w))) score += 200;
 
-                // 6.5 UK Supermarket Bonus (Boost common local brands)
-                const ukBrands = ['tesco', 'aldi', 'asda', 'sainsbury', 'morrisons', 'lidl', 'waitrose', 'm&s', 'marks'];
-                if (ukBrands.some(ub => b.includes(ub))) score += 800;
+                // 6.5 UK Supermarket & Common Brand Bonus (High Priority)
+                const ukBrands = ['tesco', 'aldi', 'asda', 'sainsbury', 'morrisons', 'lidl', 'waitrose', 'm&s', 'marks', 'cadbury', 'iceland', 'maggi'];
+                if (ukBrands.some(ub => bClean.includes(ub) || nClean.includes(ub))) score += 2000;
 
-                // 7. Language heuristic: penalty for names that look like they might be foreign or excessive symbols 
-                // if searching for English terms
-                if (!/[^a-zA-Z0-9\s]/.test(n)) score += 50;
+                // 7. Cleanliness bonus (English chars only)
+                if (!/[^a-zA-Z0-9\s]/.test(n)) score += 100;
 
                 return score;
             }
