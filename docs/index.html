@@ -2901,210 +2901,36 @@
             const resultsContainer = document.getElementById('searchResults');
             resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Searching...</p>';
 
-            function getScore(name, brand, queryStr) {
-                if (!name) return 0;
-                const n = name.toLowerCase();
-                const b = (brand || '').toLowerCase();
-                // Clean input for better matching (ignore 's)
-                const qClean = queryStr.toLowerCase().replace(/'s/g, '');
-                const nClean = n.replace(/'s/g, '');
-                const bClean = b.replace(/'s/g, '');
-                const qWords = qClean.split(/\s+/).filter(x => x);
-                
-                let score = 0;
-
-                // 1. Exact Match (Highest bonus)
-                if (nClean === qClean) score += 10000;
-                
-                // 2. Starts with query
-                if (nClean.startsWith(qClean)) score += 5000;
-
-                // 2.2 Bonus if first word matches first word of query
-                const firstWordName = nClean.split(/[^a-z0-9]/)[0];
-                const firstWordQuery = qClean.split(/\s+/)[0];
-                if (firstWordName === firstWordQuery) score += 3000;
-
-                // 2.5 Standalone word match (e.g. "Milk" as a full word vs "Milky")
-                const nameWords = nClean.split(/[^a-z0-9]/).filter(x => x);
-                if (qWords.every(qw => nameWords.includes(qw))) {
-                    score += 4000;
-                    // Proximity bonus: if words appear in same order
-                    if (nClean.includes(qWords.join(' '))) score += 1000;
-                }
-
-                // 3. Simple inclusion bonus
-                if (nClean.includes(qClean)) score += 1000;
-
-                // 4. Content match regardless of order (The "Maggi Noodle" fix)
-                if (qWords.every(w => nClean.includes(w) || bClean.includes(w))) {
-                    score += 500;
-                    // Extra bonus if all words are in the name specifically
-                    if (qWords.every(w => nClean.includes(w))) score += 300;
-                }
-
-                // 5. Shortness bonus (Higher for staples)
-                score += Math.max(0, 150 - n.length);
-
-                // 6. Brand match bonus
-                if (qWords.some(w => bClean.includes(w))) score += 200;
-
-                // 6.5 UK Supermarket & Common Brand Bonus (High Priority)
-                const ukBrands = ['tesco', 'aldi', 'asda', 'sainsbury', 'morrisons', 'lidl', 'waitrose', 'm&s', 'marks', 'cadbury', 'iceland', 'maggi'];
-                if (ukBrands.some(ub => bClean.includes(ub) || nClean.includes(ub))) score += 2000;
-
-                // 7. Cleanliness bonus (English chars only)
-                if (!/[^a-zA-Z0-9\s]/.test(n)) score += 100;
-
-                return score;
-            }
-
             try {
-                const qLow = query.toLowerCase();
-                const qWords = qLow.split(/\s+/).filter(x => x);
-
-                // 1. Local Search (Saved Meals & Foods)
-                const localMatches = meals
-                    .filter(m => {
-                        const name = m.MealName.toLowerCase();
-                        return qWords.every(w => name.includes(w));
-                    })
-                    .sort((a,b) => getScore(b.MealName, '', query) - getScore(a.MealName, '', query))
-                    .slice(0, 10);
+                // All search logic (History, Saved Meals, API, Scoring) now handled by Backend for "ML" prioritization
+                const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${localStorage.getItem('apiKey') || API_KEY}`);
+                const data = await response.json();
                 
-                // 2. History Search (Past logs)
-                const historyMatches = [];
-                const seen = new Set();
-                allRawItems.forEach(item => {
-                    if (item.Type === 'FOOD' && item.Note) {
-                        const baseNote = item.Note.split(' (')[0];
-                        const noteLow = baseNote.toLowerCase();
-                        if (qWords.every(w => noteLow.includes(w)) && !seen.has(baseNote)) {
-                            historyMatches.push({
-                                isHistory: true,
-                                name: baseNote,
-                                cals: item.Value,
-                                pro: item.Protein || 0,
-                                nutrients: item.Nutrients,
-                                score: getScore(baseNote, '', query)
-                            });
-                            seen.add(baseNote);
-                        }
-                    }
-                });
-                historyMatches.sort((a,b) => b.score - a.score);
-
-                // 3. Global Search (Open Food Facts via Worker Proxy to avoid CORS)
-                let offMatches = [];
-                let offError = null;
-                try {
-                    const offResponse = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${API_KEY}`, {
-                        headers: { 'x-api-key': API_KEY }
-                    });
-                    
-                    if (!offResponse.ok) {
-                        const errorData = await offResponse.json().catch(() => ({}));
-                        offError = errorData.error || `Service Error: ${offResponse.status}`;
-                        if (errorData.debug) console.warn("OFF Debug Info:", errorData.debug);
-
-                        if (offResponse.status === 503) {
-                            resultsDiv.innerHTML = `<div style="text-align:center; padding:20px; color:var(--sub);">
-                                <i class="fas fa-server" style="font-size:1.5em; margin-bottom:10px; opacity:0.5;"></i><br>
-                                Food database is busy (503).<br>
-                                <small>Retrying automatically...</small>
-                            </div>`;
-                        }
-                        throw new Error(offError);
-                    }
-
-                    const offData = await offResponse.json();
-                    
-                    // Simple logic to backfill micronutrients for raw/single-ingredient items 
-                    // based on their API category tags.
-                    const RAW_ENRICHMENT = {
-                        "en:tomatoes": { "vitamin-c": 14, "calcium": 10 },
-                        "en:onions": { "vitamin-c": 7.4 },
-                        "en:bananas": { "vitamin-c": 8.7 },
-                        "en:apples": { "vitamin-c": 4.6 },
-                        "en:potatoes": { "vitamin-c": 20, "zinc": 0.3 },
-                        "en:chicken-breasts": { "zinc": 1.0 },
-                        "en:broccoli": { "vitamin-c": 89, "calcium": 47 }
-                    };
-
-                    offMatches = (offData.products || []).filter(p => p.product_name).map(p => {
-                        const n = p.nutriments || {};
-                        const cats = p.categories_tags || [];
-                        
-                        let nutrients = {
-                            'fat': n.fat_100g || 0,
-                            'carbs': n.carbohydrates_100g || 0,
-                            'fiber': n.fiber_100g || 0,
-                            'sugar': n.sugars_100g || 0,
-                            'vitamin-a': (n['vitamin-a_100g'] || 0) * 1000000, 
-                            'vitamin-c': (n['vitamin-c_100g'] || 0) * 1000,   
-                            'vitamin-d': (n['vitamin-d_100g'] || 0) * 1000000, 
-                            'vitamin-e': (n['vitamin-e_100g'] || 0) * 1000,   
-                            'vitamin-k': (n['vitamin-k_100g'] || 0) * 1000000, 
-                            'calcium': (n.calcium_100g || 0) * 1000,
-                            'zinc': (n.zinc_100g || 0) * 1000,
-                            'source': 'Open Food Facts'
-                        };
-
-                        // Backfill if categories align and data is missing
-                        for (const cat of cats) {
-                            if (RAW_ENRICHMENT[cat]) {
-                                const filler = RAW_ENRICHMENT[cat];
-                                Object.keys(filler).forEach(key => {
-                                    if (!nutrients[key] || nutrients[key] === 0) {
-                                        nutrients[key] = filler[key];
-                                        nutrients.source = 'OFF (Enriched)';
-                                    }
-                                });
-                            }
-                        }
-
-                        return {
-                            isOFF: true,
-                            name: p.product_name,
-                            brand: p.brands,
-                            cals: Math.round(n['energy-kcal_100g'] || 0),
-                            pro: n.proteins_100g || 0,
-                            score: getScore(p.product_name, p.brands, query),
-                            nutrients: nutrients
-                        };
-                    });
-                    offMatches.sort((a,b) => b.score - a.score);
-                } catch (e) { 
-                    console.warn("OFF Search failed", e); 
-                    offError = e.message;
+                if (!data.products || data.products.length === 0) {
+                    resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">No matches found.</p>';
+                    return;
                 }
 
                 resultsContainer.innerHTML = '';
                 
-                if (localMatches.length > 0) {
-                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">My Saved Items</h4>';
-                    localMatches.forEach(m => renderSearchItem(resultsContainer, m.MealName, m.Calories, m.Protein, m.isQuickFood ? 'Quick Food' : 'Meal', m));
+                // Group by source for clean UI
+                const cofid = data.products.filter(p => p.source === 'CoFID');
+                const usda = data.products.filter(p => p.source === 'USDA');
+                const store = data.products.filter(p => p.source !== 'CoFID' && p.source !== 'USDA');
+
+                if (cofid.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🇬🇧 UK Scientific Staples (CoFID)</h4>';
+                    cofid.forEach((p, i) => renderMLSearchItem(resultsContainer, p, i + 1, query));
                 }
 
-                if (historyMatches.length > 0) {
-                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">My History</h4>';
-                    historyMatches.slice(0, 5).forEach(m => renderSearchItem(resultsContainer, m.name, m.cals, m.pro, 'Past Entry', m));
+                if (usda.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🔬 Foundation Data (USDA)</h4>';
+                    usda.forEach((p, i) => renderMLSearchItem(resultsContainer, p, i + 1 + cofid.length, query));
                 }
 
-                if (offMatches.length > 0) {
-                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">Global Database</h4>';
-                    offMatches.forEach(m => renderSearchItem(resultsContainer, `${m.name} ${m.brand ? '('+m.brand+')' : ''}`, m.cals, m.pro, 'OFF (per 100g/ml)', m));
-                } else if (offError) {
-                    resultsContainer.innerHTML += `
-                        <div style="background:rgba(255,100,100,0.1); border:1px solid rgba(255,0,0,0.2); border-radius:8px; padding:10px; margin-top:20px; text-align:center;">
-                            <i class="fas fa-exclamation-triangle" style="color:var(--red); margin-bottom:5px;"></i>
-                            <p style="font-size:0.8em; color:var(--sub); margin:0;">Global search is temporarily down.</p>
-                            <small style="font-size:0.6em; color:#666;">(${offError})</small>
-                        </div>
-                    `;
-                }
-
-                if (resultsContainer.innerHTML === '') {
-                    resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">No matches found.</p>';
+                if (store.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🛒 Global Store Items</h4>';
+                    store.forEach((p, i) => renderMLSearchItem(resultsContainer, p, i + 1 + cofid.length + usda.length, query));
                 }
 
             } catch (err) {
@@ -3113,27 +2939,27 @@
             }
         }
 
-        function renderSearchItem(container, name, cals, pro, type, fullItem) {
+        function renderMLSearchItem(container, p, rank, originalQuery) {
             const div = document.createElement('div');
             div.className = 'search-item';
             
-            // Layout with micro info button for items with nutrients
-            const hasNutrients = fullItem && (fullItem.nutrients || (fullItem.isQuickFood && fullItem.Ingredients && fullItem.Ingredients[0]?.nutrients));
+            const hasNutrients = !!p.nutrients;
+            const displayName = p.brand && p.brand !== 'Generic (USDA)' && p.brand !== 'Generic (UK CoFID)' ? `${p.name} (${p.brand})` : p.name;
             
             div.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex: 1; padding-right: 15px; cursor: pointer;" onclick="selectSearchResult(${JSON.stringify(fullItem).replace(/"/g, '&quot;')})">
-                        <span style="font-weight: bold; font-size: 0.9em; display: block; color: white;">${name}</span>
-                        <span style="font-size: 0.7em; color: var(--sub);">${type}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="handleMLSelect(${JSON.stringify(p).replace(/"/g, '&quot;')}, ${rank}, '${originalQuery.replace(/'/g, "\\'")}')">
+                    <div style="flex: 1; padding-right: 15px;">
+                        <span style="font-weight: bold; font-size: 0.9em; display: block; color: white;">${displayName}</span>
+                        <span style="font-size: 0.7em; color: var(--sub);">${p.source} Data</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         ${hasNutrients ? `
-                        <button class="info-btn" onclick="event.stopPropagation(); showNutrientDetails(${JSON.stringify(fullItem).replace(/"/g, '&quot;')})" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:5px; font-size:1.1em;">
+                        <button class="info-btn" onclick="event.stopPropagation(); showNutrientDetails(${JSON.stringify(p).replace(/"/g, '&quot;')})" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:5px; font-size:1.1em;">
                             <i class="fas fa-info-circle"></i>
                         </button>` : ''}
-                        <div style="text-align: right; min-width: 60px; cursor: pointer;" onclick="selectSearchResult(${JSON.stringify(fullItem).replace(/"/g, '&quot;')})">
-                            <span style="display: block; font-size: 0.9em; color: var(--accent); font-weight: bold;">${Math.round(cals)} cal</span>
-                            <span style="font-size: 0.7em; color: var(--sub);">${parseFloat(pro || 0).toFixed(1)}g pro</span>
+                        <div style="text-align: right; min-width: 60px;">
+                            <span style="display: block; font-size: 0.9em; color: var(--accent); font-weight: bold;">${Math.round(p.cals)} cal</span>
+                            <span style="font-size: 0.7em; color: var(--sub);">${parseFloat(p.pro || 0).toFixed(1)}g pro</span>
                         </div>
                     </div>
                 </div>
@@ -3141,21 +2967,27 @@
             container.appendChild(div);
         }
 
-        function selectSearchResult(item) {
-            // Helper to handle both object and potential stringified versions from HTML attributes
-            if (typeof item === 'string') {
-                try { item = JSON.parse(item); } catch(e) { console.error("Item parse fail", e); return; }
-            }
-            const cals = item.Calories || item.cals || 0;
-            const pro = item.Protein || item.pro || 0;
-            
-            // Extract nutrients if available
-            let nutrients = item.nutrients || null;
-            if (item.isQuickFood && item.Ingredients && item.Ingredients[0]) {
-                nutrients = item.Ingredients[0].nutrients;
-            } else if (item.isHistory && item.nutrients) {
-                nutrients = typeof item.nutrients === 'string' ? JSON.parse(item.nutrients) : item.nutrients;
-            }
+        async function handleMLSelect(item, rank, query) {
+            // 1. Record Feedback (Post-training)
+            fetch(`${API_BASE}/feedback`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-api-key': localStorage.getItem('apiKey') || API_KEY
+                },
+                body: JSON.stringify({
+                    query: query,
+                    resultName: item.name,
+                    resultSource: item.source,
+                    rank: rank
+                })
+            }).catch(e => console.error('Feedback failed:', e));
+
+            // 2. Original selection logic (integrated)
+            const cals = item.cals || 0;
+            const pro = item.pro || 0;
+            const nutrients = item.nutrients || null;
+            const name = item.brand && !item.brand.includes('Generic') ? `${item.name} (${item.brand})` : item.name;
 
             if (activeSearchContext === 'log') {
                 document.getElementById('foodNote').value = name;
@@ -3163,42 +2995,38 @@
                 document.getElementById('foodPro').value = parseFloat(pro || 0).toFixed(1);
                 lastScannedNutrients = nutrients;
                 
-                // Set up ratioLock for scaling if it's a discrete item (OFF is per 100, History is per 1)
-                const baseQty = item.isOFF ? 100 : 1;
+                // Set up ratioLock for scaling
+                const baseQty = (item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID') ? 100 : 1;
                 ratioLock = {
                     cal_per_unit: cals / baseQty,
                     pro_per_unit: pro / baseQty
                 };
                 
-                if (item.isOFF) {
-                    document.getElementById('foodQty').value = 100;
-                    document.getElementById('foodUnit').value = 'g';
+                if (baseQty === 100) {
+                    document.getElementById('foodQty').value = "100";
+                    document.getElementById('foodUnit').value = "g";
+                } else {
+                    document.getElementById('foodQty').value = "1";
+                    document.getElementById('foodUnit').value = "portion";
                 }
-            } else if (activeSearchContext === 'quick') {
-                document.getElementById('m-name').value = name;
-                document.getElementById('m-quickcals').value = Math.round(cals);
-                document.getElementById('m-quickpro').value = parseFloat(pro || 0).toFixed(1);
-                lastScannedNutrients = nutrients;
-                
-                if (item.isOFF) {
-                    document.getElementById('m-quickqty').value = 100;
-                    document.getElementById('m-quickunit').value = 'g';
+            } else if (activeSearchContext === 'meal') {
+                if (activeSearchElement) {
+                    const row = activeSearchElement.closest('.ingredient-row');
+                    if (row) {
+                        row.querySelector('.ing-name').value = name;
+                        row.querySelector('.ing-cals').value = Math.round(cals);
+                        row.querySelector('.ing-pro').value = parseFloat(pro || 0).toFixed(1);
+                        row.dataset.nutrients = JSON.stringify(nutrients);
+                        
+                        // Default to 100g for scientific databases
+                        const baseQty = (item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID') ? 100 : 1;
+                        row.querySelector('.ing-qty').value = baseQty;
+                        row.querySelector('.ing-unit').value = baseQty === 100 ? 'g' : 'portion';
+                    }
                 }
-            } else if (activeSearchContext === 'ing') {
-                const row = activeSearchElement.closest('.ing-row');
-                activeSearchElement.value = name;
-                row.querySelector('.ing-cals').value = Math.round(cals);
-                row.querySelector('.ing-pro').value = parseFloat(pro || 0).toFixed(1);
-                row.dataset.nutrients = nutrients ? JSON.stringify(nutrients) : '';
-                
-                if (item.isOFF) {
-                    row.querySelector('input[type="number"]').value = 100;
-                    row.querySelector('.ing-unit').value = 'g';
-                }
+                updateMealTotals();
             }
-            
             closeSearch();
-            showToast('Loaded: ' + name);
         }
 
         // ==================== BARCODE SCANNER LOGIC ====================
