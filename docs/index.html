@@ -2914,23 +2914,37 @@
                 resultsContainer.innerHTML = '';
                 
                 // Group by source for clean UI
+                const history = data.products.filter(p => p.source === 'History');
+                const meals = data.products.filter(p => p.source === 'Saved Meal');
                 const cofid = data.products.filter(p => p.source === 'CoFID');
                 const usda = data.products.filter(p => p.source === 'USDA');
-                const store = data.products.filter(p => p.source !== 'CoFID' && p.source !== 'USDA');
+                const store = data.products.filter(p => p.source === 'OFF');
+
+                let currentRank = 1;
+
+                if (history.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🕒 Your Recent History</h4>';
+                    history.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
+                }
+
+                if (meals.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🍱 Your Saved Meals</h4>';
+                    meals.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
+                }
 
                 if (cofid.length > 0) {
                     resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🇬🇧 UK Scientific Staples (CoFID)</h4>';
-                    cofid.forEach((p, i) => renderMLSearchItem(resultsContainer, p, i + 1, query));
+                    cofid.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
 
                 if (usda.length > 0) {
                     resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🔬 Foundation Data (USDA)</h4>';
-                    usda.forEach((p, i) => renderMLSearchItem(resultsContainer, p, i + 1 + cofid.length, query));
+                    usda.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
 
                 if (store.length > 0) {
-                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🛒 Global Store Items</h4>';
-                    store.forEach((p, i) => renderMLSearchItem(resultsContainer, p, i + 1 + cofid.length + usda.length, query));
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🛒 Global Store Items (OFF)</h4>';
+                    store.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
 
             } catch (err) {
