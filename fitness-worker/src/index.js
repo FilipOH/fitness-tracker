@@ -306,34 +306,96 @@ async function handleApiRequest(request, env) {
 
   // GET /meals
   if (path === '/meals' && method === 'GET') {
-    const result = await env.DB.prepare('SELECT * FROM saved_meals WHERE user_id = ? ORDER BY meal_name').bind(userId).all();
-    const meals = result.results?.map(m => ({
-      MealName: m.meal_name, Calories: m.calories, Protein: m.protein, Portions: m.portions || 1, isQuickFood: m.is_quick_food === 1, Ingredients: m.ingredients ? JSON.parse(m.ingredients) : []
-    })) || [];
-    return jsonResponse({ meals });
+    const mealsResult = await env.DB.prepare('SELECT * FROM meals WHERE user_id = ? ORDER BY meal_name').bind(userId).all();
+    const meals = mealsResult.results || [];
+    
+    // Fetch all ingredients for these meals
+    const mealIds = meals.map(m => m.meal_id);
+    let allIngredients = [];
+    if (mealIds.length > 0) {
+      const placeholders = mealIds.map(() => '?').join(',');
+      const ingResult = await env.DB.prepare(`SELECT * FROM ingredients WHERE meal_id IN (${placeholders})`).bind(...mealIds).all();
+      allIngredients = ingResult.results || [];
+    }
+
+    const formattedMeals = meals.map(m => {
+      const mealIngredients = allIngredients.filter(i => i.meal_id === m.meal_id);
+      
+      // Calculate totals on the fly
+      const totalCalories = mealIngredients.reduce((sum, i) => sum + i.calories, 0);
+      const totalProtein = mealIngredients.reduce((sum, i) => sum + i.protein, 0);
+
+      return {
+        mealId: m.meal_id,
+        MealName: m.meal_name,
+        Calories: totalCalories,
+        Protein: totalProtein,
+        Portions: m.portions || 1,
+        isQuickFood: m.is_quick_food === 1,
+        Ingredients: mealIngredients.map(i => ({
+          desc: i.name,
+          qty: i.amount,
+          unit: i.amount_units,
+          cals: i.calories,
+          pro: i.protein
+        }))
+      };
+    });
+    
+    return jsonResponse({ meals: formattedMeals });
   }
 
   // POST /meals
   if (path === '/meals' && method === 'POST') {
     const data = await request.json().catch(() => ({}));
-    const { name, mealName, calories, protein, portions, ingredients, isQuickFood } = data;
+    const { name, mealName, portions, ingredients, isQuickFood } = data;
     const finalName = name || mealName;
     if (!finalName) return jsonResponse({ error: 'Meal name required' }, 400);
 
-    const ingredientsJson = ingredients ? JSON.stringify(ingredients) : '[]';
-    await env.DB.prepare(`
-      INSERT INTO saved_meals (user_id, meal_name, calories, protein, portions, is_quick_food, ingredients)
-      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, meal_name) DO UPDATE SET
-      calories = excluded.calories, protein = excluded.protein, portions = excluded.portions, is_quick_food = excluded.is_quick_food, ingredients = excluded.ingredients
-    `).bind(userId, finalName, Number(calories || 0), Number(protein || 0), Number(portions || 1), isQuickFood ? 1 : 0, ingredientsJson).run();
-    return jsonResponse({ status: 'success' });
+    // Insert or update the meal header
+    const result = await env.DB.prepare(`
+      INSERT INTO meals (user_id, meal_name, portions, is_quick_food, modified_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, meal_name) DO UPDATE SET
+      portions = excluded.portions, 
+      is_quick_food = excluded.is_quick_food,
+      modified_at = CURRENT_TIMESTAMP
+      RETURNING meal_id
+    `).bind(userId, finalName, Number(portions || 1), isQuickFood ? 1 : 0).first();
+
+    const mealId = result.meal_id;
+
+    // Delete existing ingredients for this meal
+    await env.DB.prepare('DELETE FROM ingredients WHERE meal_id = ?').bind(mealId).run();
+
+    // Insert new ingredients
+    if (ingredients && Array.isArray(ingredients)) {
+      for (const ing of ingredients) {
+        if (ing.desc || isQuickFood) {
+          await env.DB.prepare(`
+            INSERT INTO ingredients (meal_id, name, amount, amount_units, calories, protein)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).bind(
+            mealId, 
+            ing.desc || finalName, 
+            Number(ing.qty || 0), 
+            ing.unit || 'g', 
+            Number(ing.cals || 0), 
+            Number(ing.pro || 0)
+          ).run();
+        }
+      }
+    }
+
+    return jsonResponse({ status: 'success', mealId });
   }
 
   // DELETE /meals
   if (path === '/meals' && method === 'DELETE') {
     const name = url.searchParams.get('name');
     if (!name) return jsonResponse({ error: 'Missing name' }, 400);
-    await env.DB.prepare('DELETE FROM saved_meals WHERE user_id = ? AND meal_name = ?').bind(userId, name).run();
+    // Cascade delete handles ingredients
+    await env.DB.prepare('DELETE FROM meals WHERE user_id = ? AND meal_name = ?').bind(userId, name).run();
     return jsonResponse({ status: 'success' });
   }
 

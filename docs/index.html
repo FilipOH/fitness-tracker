@@ -417,18 +417,24 @@
             
             <div id="mealFields">
                 <div class="form-row"><label>Portions</label><input type="number" id="m-portions" value="1"></div>
-                <div id="ingredientsList">
-                    <div class="ing-row"><input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals"></div>
+                <div id="ingredientsList" style="margin-top:10px;">
+                    <!-- Ingredients populated here -->
                 </div>
-                <button onclick="addIngredientLine()" style="background:#444; color:white; border:none; padding:8px; border-radius:5px; margin-bottom:10px; width:100%; font-size:0.8em;">+ Add Ingredient</button>
+                <div style="display:flex; gap:10px; margin: 15px 0 10px 0;">
+                    <button onclick="addIngredientLine()" style="flex:1; background:#444; color:white; border:none; padding:10px; border-radius:8px; font-size:0.85em;"><i class="fas fa-plus"></i> Add Ingredient</button>
+                    <button id="btnScanMeal" onclick="startScanner('meal')" style="flex:1; background:#444; color:white; border:none; padding:10px; border-radius:8px; font-size:0.85em;"><i class="fas fa-barcode"></i> Scan</button>
+                </div>
             </div>
             
             <div id="foodFields" style="display:none;">
                 <div class="form-row"><label>Calories</label><input type="number" id="m-quickcals"></div>
+                <div class="form-row"><label>Protein (g)</label><input type="number" id="m-quickpro"></div>
             </div>
             
-            <div class="form-row"><label>Total Protein (Optional)</label><input type="number" id="m-protein"></div>
-            <button class="submit" onclick="saveMeal()">Save Item</button>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button class="submit" onclick="saveMeal()" style="flex:2;">Save Item</button>
+                <button onclick="clearMealForm()" style="flex:1; background:#333; color:white; border:none; border-radius:8px; font-size:0.9em;"><i class="fas fa-undo"></i> Clear</button>
+            </div>
         </div>
         <div class="form-row" style="margin-top:20px;">
             <input type="text" id="mealSearchInput" placeholder="🔍 Search saved items..." onkeyup="filterMealsList()" style="width:100%; padding:12px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:white;">
@@ -1887,23 +1893,27 @@
             }
         }
 
-        function addIngredientLine(name = '', qty = '', cals = '', pro = '') {
+        function addIngredientLine(name = '', qty = '', cals = '', pro = '', unit = 'g') {
             const container = document.getElementById('ingredientsList');
-            const index = container.querySelectorAll('.ing-row').length + 1;
-            
-            const label = document.createElement('div');
-            label.className = 'ing-label';
-            label.textContent = `Ingredient ${index}`;
             
             const div = document.createElement('div');
             div.className = 'ing-row';
+            div.style = 'display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto; gap: 5px; align-items: center; margin-bottom: 8px;';
             div.innerHTML = `
-                <input type="text" placeholder="Name" value="${name}">
-                <input type="text" placeholder="Qty" value="${qty}">
-                <input type="number" placeholder="Cals" class="ing-cals" value="${cals}">
-                <input type="number" placeholder="Pro" class="ing-pro" value="${pro}">
+                <input type="text" placeholder="Name" value="${name}" style="padding:8px; font-size:0.85em;">
+                <div style="position:relative; display:flex;">
+                    <input type="number" placeholder="Amt" value="${qty}" style="padding:8px; width:100%; font-size:0.85em;">
+                    <select class="ing-unit" style="position:absolute; right:0; top:0; height:100%; background:#333; color:white; border:none; border-left:1px solid #444; font-size:0.7em; padding:0 2px; border-radius:0 4px 4px 0;">
+                        <option value="g" ${unit === 'g' ? 'selected' : ''}>g</option>
+                        <option value="ml" ${unit === 'ml' ? 'selected' : ''}>ml</option>
+                        <option value="tbsp" ${unit === 'tbsp' ? 'selected' : ''}>tbsp</option>
+                        <option value="tsp" ${unit === 'tsp' ? 'selected' : ''}>tsp</option>
+                    </select>
+                </div>
+                <input type="number" placeholder="Cal" class="ing-cals" value="${cals}" style="padding:8px; font-size:0.85em;">
+                <input type="number" placeholder="Pro" class="ing-pro" value="${pro}" style="padding:8px; font-size:0.85em;">
+                <button onclick="this.parentElement.remove()" style="background:transparent; color:#ff4444; border:none; padding:5px; font-size:1.1em; cursor:pointer;" title="Remove"><i class="fas fa-times"></i></button>
             `;
-            container.appendChild(label);
             container.appendChild(div);
         }
 
@@ -1935,6 +1945,16 @@
             loadMeals(); // Refresh the list
         }
 
+        function clearMealForm() {
+            document.getElementById('m-name').value = '';
+            document.getElementById('m-portions').value = '1';
+            document.getElementById('m-quickcals').value = '';
+            document.getElementById('m-quickpro').value = '';
+            document.getElementById('ingredientsList').innerHTML = '';
+            addIngredientLine();
+            showToast('Form cleared', 'undo');
+        }
+
         async function saveMeal() {
             const name = document.getElementById('m-name').value;
             if (!name) {
@@ -1942,8 +1962,8 @@
                 return;
             }
             
-            const protein = document.getElementById('m-protein').value;
             let totalCals = 0;
+            let totalPro = 0;
             let portions = 1;
             let ings = [];
             let isQuickFood = currentMealType === 'food';
@@ -1951,25 +1971,39 @@
             if (isQuickFood) {
                 // Quick food - just name, calories, and protein
                 const quickCals = document.getElementById('m-quickcals').value;
+                const quickPro = document.getElementById('m-quickpro').value;
                 if (!quickCals || parseFloat(quickCals) <= 0) {
                     showToast('Please enter calories for quick food', 'exclamation-triangle');
                     return;
                 }
                 totalCals = parseFloat(quickCals);
+                totalPro = parseFloat(quickPro || 0);
                 portions = 1;
+                // For quick food exactly one ingredient
+                ings = [{
+                    desc: name,
+                    qty: 1,
+                    unit: 'unit',
+                    cals: totalCals,
+                    pro: totalPro
+                }];
             } else {
                 // Multi-ingredient meal
                 portions = document.getElementById('m-portions').value;
                 document.querySelectorAll('#ingredientsList .ing-row').forEach(row => {
                     const inputs = row.querySelectorAll('input');
+                    const unitElem = row.querySelector('.ing-unit');
+                    const unit = unitElem ? unitElem.value : 'g';
                     if (inputs[0].value) {
                         ings.push({ 
                             desc: inputs[0].value, 
-                            qty: inputs[1].value, 
+                            qty: parseFloat(inputs[1].value || 0),
+                            unit: unit,
                             cals: parseFloat(inputs[2].value || 0),
                             pro: parseFloat(inputs[3].value || 0)
                         });
                         totalCals += parseFloat(inputs[2].value || 0);
+                        totalPro += parseFloat(inputs[3].value || 0);
                     }
                 });
             }
@@ -1981,8 +2015,6 @@
                     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
                     body: JSON.stringify({ 
                         name, 
-                        calories: totalCals, 
-                        protein, 
                         portions, 
                         ingredients: ings,
                         isQuickFood: isQuickFood
@@ -1995,15 +2027,7 @@
                 await loadMeals();
                 
                 // Clear form
-                document.getElementById('m-name').value = '';
-                document.getElementById('m-protein').value = '';
-                if (isQuickFood) {
-                    document.getElementById('m-quickcals').value = '';
-                } else {
-                    document.getElementById('m-portions').value = '1';
-                    document.getElementById('ingredientsList').innerHTML = '';
-                    addIngredientLine();
-                }
+                clearMealForm();
             } catch (e) {
                 hideLoading();
                 showToast('Failed to save', 'exclamation-triangle');
@@ -2090,6 +2114,7 @@
             
             filteredMeals.forEach(m => {
                 const perPortion = (m.Calories / m.Portions).toFixed(0);
+                const proPerPortion = (m.Protein / m.Portions).toFixed(1);
                 
                 const mealCard = document.createElement('div');
                 mealCard.className = 'card meal-card';
@@ -2097,8 +2122,8 @@
                 mealCard.style = 'display:flex; justify-content:space-between; align-items:center; padding:10px; margin-bottom:5px;';
                 
                 const subtitle = m.isQuickFood 
-                    ? `<span style="font-size:0.8em; color:var(--sub);">${m.Calories} cal</span>`
-                    : `<span style="font-size:0.8em; color:var(--sub);">${perPortion} cal/portion (${m.Portions} portions)</span>`;
+                    ? `<span style="font-size:0.8em; color:var(--sub);">${m.Calories} cal | ${m.Protein || 0}g pro</span>`
+                    : `<span style="font-size:0.8em; color:var(--sub);">${perPortion} cal | ${proPerPortion}g pro (per portion)</span>`;
                 
                 // Add log button for quick foods
                 const logButton = m.isQuickFood 
@@ -2133,32 +2158,34 @@
             const meal = meals.find(m => m.MealName === name);
             if (!meal) return;
             
-            // Pre-populate the form
+            // Switch view to match meal type
+            switchMealType(meal.isQuickFood ? 'food' : 'meal');
+            
+            // Fill common form fields
             document.getElementById('m-name').value = meal.MealName;
-            document.getElementById('m-portions').value = meal.Portions || 1;
-            document.getElementById('m-protein').value = meal.Protein || 0;
             
-            // Ensure we are in "meal" mode (not "quick food")
-            switchMealType('meal');
-            
-            // Clear and repopulate ingredients
-            const container = document.getElementById('ingredientsList');
-            container.innerHTML = '';
-            
-            if (meal.Ingredients && meal.Ingredients.length > 0) {
-                meal.Ingredients.forEach(ing => {
-                    // Check for all possible name/protein properties
-                    const ingName = ing.desc || ing.item || ing.name || '';
-                    const ingPro = ing.pro || ing.protein || '';
-                    addIngredientLine(ingName, ing.qty || '', ing.cals || '', ingPro);
-                });
+            if (meal.isQuickFood) {
+                document.getElementById('m-quickcals').value = meal.Calories;
+                document.getElementById('m-quickpro').value = meal.Protein || 0;
             } else {
-                addIngredientLine();
+                document.getElementById('m-portions').value = meal.Portions || 1;
+                const list = document.getElementById('ingredientsList');
+                list.innerHTML = ''; // Clear
+                
+                if (meal.Ingredients && meal.Ingredients.length > 0) {
+                    meal.Ingredients.forEach(ing => {
+                        const ingName = ing.desc || ing.name || '';
+                        const ingPro = ing.pro || ing.protein || 0;
+                        addIngredientLine(ingName, ing.qty || '', ing.cals || 0, ingPro, ing.unit || 'g');
+                    });
+                } else {
+                    addIngredientLine();
+                }
             }
             
             // Scroll to the meal creation area
-            document.getElementById('mealsTab').scrollIntoView({ behavior: 'smooth' });
-            showToast('Meal loaded for editing', 'edit');
+            document.getElementById('createTitle').scrollIntoView({ behavior: 'smooth' });
+            showToast('Loading ' + name + ' for editing', 'edit');
         }
 
         async function logQuickFood(name, calories, protein) {
@@ -2221,42 +2248,6 @@
                 headers: { 'x-api-key': API_KEY }
             });
             loadMeals();
-        }
-
-        function editMeal(name) {
-            const meal = meals.find(m => m.MealName === name);
-            if (!meal) return;
-            
-            // Switch view to match meal type
-            switchMealType(meal.isQuickFood ? 'food' : 'meal');
-            
-            // Fill form
-            document.getElementById('m-name').value = meal.MealName;
-            document.getElementById('m-protein').value = meal.Protein || '';
-            
-            if (meal.isQuickFood) {
-                document.getElementById('m-quickcals').value = meal.Calories;
-            } else {
-                document.getElementById('m-portions').value = meal.Portions;
-                const list = document.getElementById('ingredientsList');
-                list.innerHTML = ''; // Clear
-                
-                if (meal.Ingredients && meal.Ingredients.length > 0) {
-                    meal.Ingredients.forEach(ing => {
-                        const div = document.createElement('div');
-                        div.className = 'ing-row';
-                        const desc = ing.desc || ing.name || '';
-                        div.innerHTML = `<input type="text" placeholder="Ingredient" value="${desc}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
-                        list.appendChild(div);
-                    });
-                } else {
-                    addIngredientLine();
-                }
-            }
-            
-            // Scroll to top of form
-            document.getElementById('createTitle').scrollIntoView({ behavior: 'smooth' });
-            showToast('Loading ' + name + ' for editing', 'edit');
         }
 
         function applyMeal() {
@@ -2552,20 +2543,10 @@
                             if (currentMealType === 'food') {
                                 document.getElementById('m-name').value = name + brand;
                                 document.getElementById('m-quickcals').value = Math.round(energyKcal);
-                                document.getElementById('m-protein').value = Math.round(protein100g);
+                                document.getElementById('m-quickpro').value = Math.round(protein100g);
                             } else {
                                 // Add to ingredients list
-                                const list = document.getElementById('ingredientsList');
-                                // Remove placeholder row if it's the only one and is empty
-                                const rows = list.querySelectorAll('.ing-row');
-                                if (rows.length === 1) {
-                                    const inputs = rows[0].querySelectorAll('input');
-                                    if (!inputs[0].value && !inputs[1].value && !inputs[2].value) {
-                                        list.innerHTML = ''; // Clear label and row
-                                    }
-                                }
-                                
-                                addIngredientLine(name + brand, "100g", Math.round(energyKcal), Math.round(protein100g));
+                                addIngredientLine(name + brand, "100", Math.round(energyKcal), Math.round(protein100g), 'g');
                             }
                         } else {
                             // Default to the Log tab Quick Food fields
@@ -2866,7 +2847,7 @@
             hideLoading();
         }
         toggleFields();
-        // Removed window.onload = loadMeals; as it's now handled by checkAuth
+        addIngredientLine();
     </script>
 </body>
 </html>
