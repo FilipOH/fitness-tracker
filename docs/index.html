@@ -2030,11 +2030,39 @@
             document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
         }
 
-        function showNutrientDetails(pk, sk) {
-            const item = allRawItems.find(i => i.PK === pk && i.SK === sk);
-            if (!item || !item.Nutrients) return;
+        function showNutrientDetails(itemOrPk, sk) {
+            let item;
+            if (sk) {
+                item = allRawItems.find(i => i.PK === itemOrPk && i.SK === sk);
+            } else {
+                item = typeof itemOrPk === 'string' ? JSON.parse(itemOrPk) : itemOrPk;
+            }
             
-            const n = typeof item.Nutrients === 'string' ? JSON.parse(item.Nutrients) : item.Nutrients;
+            if (!item) return;
+
+            let n = null;
+            if (item.nutrients) n = item.nutrients;
+            else if (item.Nutrients) n = item.Nutrients;
+            else if (item.isQuickFood && item.Ingredients && item.Ingredients[0]?.nutrients) n = item.Ingredients[0].nutrients;
+            else if (item.Ingredients) {
+                // Aggregated nutrients for meals
+                n = { fat:0, carbs:0, fiber:0, sugar:0, source: 'Aggregated Ingredients' };
+                item.Ingredients.forEach(ing => {
+                    if (!ing.nutrients) return;
+                    for (const key in ing.nutrients) {
+                        if (typeof ing.nutrients[key] === 'number') {
+                            n[key] = (n[key] || 0) + ing.nutrients[key];
+                        }
+                    }
+                });
+            }
+
+            if (!n) {
+                showToast('No nutrient data available', 'info');
+                return;
+            }
+            
+            n = typeof n === 'string' ? JSON.parse(n) : n;
             
             // Build content dynamically from RDI_DATA to ensure we show all 13
             let contentHtml = '<div style="text-align:left; max-height: 350px; overflow-y: auto; padding-right: 5px;">';
@@ -2174,9 +2202,11 @@
             div.innerHTML = `
                 <!-- Row 1: Header -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
-                    <span style="font-size: 0.75em; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 0.8px;">Ingredient ${index}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.75em; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 0.8px;">Ingredient ${index}</span>
+                        ${nutrients ? '<i class="fas fa-microscope" style="color:var(--accent); font-size: 0.8em;" title="Has Micros"></i>' : ''}
+                    </div>
                     <button onclick="this.parentElement.parentElement.remove(); reindexIngredients();" style="background:rgba(255,255,255,0.05); color:#ff4444; border:none; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor:pointer;" title="Remove"><i class="fas fa-trash-alt"></i></button>
-                    ${nutrients ? '<i class="fas fa-microscope" style="color:var(--accent); font-size: 0.8em;" title="Has Micros"></i>' : ''}
                 </div>
                 
                 <!-- Row 2: Name -->
@@ -2451,21 +2481,17 @@
                     : m.Ingredients?.some(ing => ing.nutrients);
 
                 const infoBtn = hasNutrients ? `
-                    <button onclick="showNutrientDetails(${JSON.stringify(m).replace(/"/g, '&quot;')})" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1em; padding:4px;">
+                    <button onclick="showNutrientDetails(${JSON.stringify(m).replace(/"/g, '&quot;')})" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1em; padding:4px; margin-left: 5px; vertical-align: middle;">
                         <i class="fas fa-info-circle"></i>
                     </button>` : '';
 
                 const subtitle = m.isQuickFood 
                     ? `<div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85em; color:var(--sub); align-items: center;">
                          <span>${m.Calories} cal | ${m.Protein || 0}g pro | ${m.Ingredients?.[0]?.qty || ''}${m.Ingredients?.[0]?.unit || ''}</span>
-                         ${infoBtn}
                        </div>`
                     : `<div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85em; color:var(--sub); align-items: center;">
                          <span>${perPortion} cal | ${proPerPortion}g pro (per portion)</span>
-                         <div style="display:flex; align-items:center; gap:8px;">
-                            ${infoBtn}
-                            <span style="opacity:0.6;">${m.Portions} port.</span>
-                         </div>
+                         <span style="opacity:0.6;">${m.Portions} port.</span>
                        </div>`;
                 
                 // Add log button for quick foods
@@ -2475,7 +2501,10 @@
                 
                 mealCard.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%;">
-                        <strong style="color:var(--accent); font-size:1em; cursor:pointer;" onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')">${m.MealName}</strong>
+                        <div style="display:flex; align-items:center; flex:1;">
+                            <strong style="color:var(--accent); font-size:1em; cursor:pointer;" onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')">${m.MealName}</strong>
+                            ${infoBtn}
+                        </div>
                         <div style="display:flex; gap:12px;">
                             ${logButton}
                             <button onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:var(--sub); cursor:pointer; padding:0;" title="Edit"><i class="fas fa-edit"></i></button>
