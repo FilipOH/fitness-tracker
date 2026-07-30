@@ -229,10 +229,19 @@
         <div id="inputTab" class="tab-content active">
         <h1 style="font-size: 1.4em; color: var(--accent);">Log Entry</h1>
         <div class="card">
-            <div class="form-row">
-                <label>Date</label>
-                <input type="date" id="logDate">
+            <!-- Row 1: Date & Time -->
+            <div class="grid" style="margin-bottom:10px;">
+                <div class="form-row" style="margin-bottom:0;">
+                    <label>Date</label>
+                    <input type="date" id="logDate">
+                </div>
+                <div class="form-row" style="margin-bottom:0;">
+                    <label>Log Time</label>
+                    <input type="time" id="foodTime">
+                </div>
             </div>
+
+            <!-- Row 2: Category -->
             <div class="form-row">
                 <label>Category</label>
                 <select id="entryType" onchange="toggleFields()">
@@ -247,40 +256,47 @@
 
             <!-- Food Form -->
             <div id="foodForm">
-                <div class="form-row" style="flex-direction:row; align-items:center; gap:10px;">
-                    <input type="checkbox" id="isSavedMeal" onchange="toggleSavedMeals()">
-                    <label style="margin:0;">Use Saved Meal?</label>
+                <!-- Row 3: Utility Buttons -->
+                <div class="grid" style="margin-bottom:15px; grid-template-columns: 1fr 1fr;">
+                    <button onclick="startScanner()" style="background:#444; color:white; border:1px solid #555; height: 44px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:0.85em;">
+                        <i class="fas fa-barcode"></i>
+                        <span>Scan Barcode</span>
+                    </button>
+                    <div class="form-row" style="margin-bottom:0; flex-direction:row; align-items:center; gap:8px; background:#333; padding:10px; border-radius:8px; border:1px solid #444; height: 44px; justify-content: center;">
+                        <input type="checkbox" id="isSavedMeal" onchange="toggleSavedMeals()" style="width:18px; height:18px;">
+                        <label style="margin:0; color:white; font-size:0.8em; white-space:nowrap;">Use Saved</label>
+                    </div>
                 </div>
-                <div id="mealSelectRow" class="form-row" style="display:none;">
+
+                <div id="mealSelectRow" class="form-row" style="display:none; margin-bottom:15px;">
+                    <label>Select Saved Item</label>
                     <select id="mealSelect" style="width: 100%;">
                         <option value="">Select a meal...</option>
                     </select>
-                    <label style="margin-top:10px;">Portions</label>
-                    <input type="number" id="mealPortions" placeholder="1.0" step="0.1" min="0.1" value="1">
+                    <div style="margin-top:10px;">
+                        <label>Portions</label>
+                        <input type="number" id="mealPortions" placeholder="1.0" step="0.1" min="0.1" value="1">
+                    </div>
                 </div>
+
                 <div id="manualFoodFields">
-                    <div class="form-row" style="margin-bottom: 20px;">
-                        <button onclick="startScanner()" style="background:#555; color:white; border:none; padding:12px; border-radius:8px; width:100%; display:flex; align-items:center; justify-content:center; gap:10px;">
-                            <i class="fas fa-barcode" style="font-size:1.2em;"></i>
-                            <span>Scan Barcode</span>
-                        </button>
-                    </div>
+                    <!-- Row 4: Item Name -->
                     <div class="form-row">
-                        <label>Calories</label>
-                        <input type="number" id="foodCals" placeholder="e.g. 500" min="0" max="5000">
-                    </div>
-                    <div class="form-row">
-                        <label>Protein (g)</label>
-                        <input type="number" id="foodPro" placeholder="e.g. 30" min="0" max="500">
-                    </div>
-                    <div class="form-row">
-                        <label>Notes / Item Name</label>
+                        <label>Item Name</label>
                         <input type="text" id="foodNote" placeholder="e.g. Chicken Salad">
                     </div>
-                </div>
-                <div class="form-row">
-                    <label>Log Time (Optional - leave for 'Now')</label>
-                    <input type="time" id="foodTime">
+
+                    <!-- Row 5: Calories & Protein -->
+                    <div class="grid" style="margin-bottom:0; grid-template-columns: 1fr 1fr;">
+                        <div class="form-row" style="margin-bottom:0;">
+                            <label>Calories</label>
+                            <input type="number" id="foodCals" placeholder="Cals" min="0" max="5000">
+                        </div>
+                        <div class="form-row" style="margin-bottom:0;">
+                            <label>Protein (g)</label>
+                            <input type="number" id="foodPro" placeholder="Prot" min="0" max="500">
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -322,7 +338,7 @@
                 </div>
             </div>
 
-            <button class="submit" onclick="submitData()">Save Entry</button>
+            <button class="submit" onclick="submitData()" style="margin-top:15px;">Save Entry</button>
             <p id="feedback" style="text-align:center; font-size:0.8em; margin-top:10px;"></p>
         </div>
     </div>
@@ -2238,13 +2254,14 @@
             const selectedDate = document.getElementById('logDate').value;
             let val, pro = 0, note = "", customTime = null;
             
+            // Log Time is now global
+            customTime = document.getElementById('foodTime').value;
+            if (customTime) customTime = customTime + ':00';
+
             if (type === 'FOOD') { 
                 val = document.getElementById('foodCals').value; 
                 pro = document.getElementById('foodPro').value; 
                 note = document.getElementById('foodNote').value; 
-                customTime = document.getElementById('foodTime').value;
-                // Convert HH:MM to HH:MM:SS for consistency with backend
-                if (customTime) customTime = customTime + ':00';
             }
             else if (type === 'GYM') { val = 1; note = document.getElementById('gymNote').value; }
             else if (type === 'WEIGHT') { val = document.getElementById('weightVal').value; }
