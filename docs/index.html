@@ -2996,12 +2996,6 @@
             }
         }
 
-            } catch (err) {
-                console.error("Search error:", err);
-                resultsContainer.innerHTML = '<p style="color: var(--red); text-align: center; margin-top: 50px;">Error performing search.</p>';
-            }
-        }
-
         function renderSearchItem(container, name, cals, pro, type, fullItem) {
             const div = document.createElement('div');
             div.className = 'search-item';
