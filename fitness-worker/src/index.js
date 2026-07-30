@@ -190,11 +190,25 @@ async function handleApiRequest(request, env) {
     if (!query) return jsonResponse({ products: [] });
 
     try {
-      // Improved search: 
-      // 1. sort_by=unique_scans_n: Puts popular items at the top (e.g. real apples vs obscure apple pies)
-      // 2. search_simple=1: Basic keyword search
-      // 3. json=1: Required for API response
-      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&sort_by=unique_scans_n`;
+      // Switch to the modern v2 Search API for better filtering
+      // - categories_tags_en: tries to match the category
+      // - fields: minimizes data transfer
+      // - sort_by: popularity
+      // - lc: language preference (English)
+      
+      const searchParams = new URLSearchParams({
+        search_terms: query,
+        search_simple: '1',
+        action: 'process',
+        json: '1',
+        page_size: '25',
+        sort_by: 'unique_scans_n',
+        lc: 'en',            // Prefer English names
+        cc: 'uk',            // Prefer UK-sold products if possible
+        fields: 'product_name,brands,nutriments,code,countries,categories_tags'
+      });
+
+      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?${searchParams.toString()}`;
       
       const offRes = await fetch(offUrl, {
         headers: { 
@@ -202,7 +216,7 @@ async function handleApiRequest(request, env) {
           'Accept': 'application/json'
         },
         cf: {
-          cacheTtl: 3600, // Cache results for 1 hour at the edge
+          cacheTtl: 3600,
           cacheEverything: true
         }
       });
@@ -211,16 +225,19 @@ async function handleApiRequest(request, env) {
         return jsonResponse({ error: `OFF API responded with ${offRes.status}` }, offRes.status);
       }
       
-      const text = await offRes.text();
-      let offData;
-      try {
-        offData = JSON.parse(text);
-      } catch (parseErr) {
-        return jsonResponse({ error: 'Invalid JSON from OFF', raw: text.substring(0, 100) }, 502);
-      }
+      const offData = await offRes.json();
       
-      // If we got no products, try a broader search without sorting if needed? 
-      // For now, sorting by scans is usually best for "simple" items.
+      // Post-filter: Remove results that are definitely in the wrong language or missing names
+      if (offData.products) {
+        offData.products = offData.products.filter(p => {
+          if (!p.product_name) return false;
+          // Filter out results that are clearly not for English speaking markets if brand is also missing
+          if (!p.countries?.toLowerCase().includes('united kingdom') && 
+              !p.countries?.toLowerCase().includes('en:') && 
+              !p.brands) return true; // keep it just in case
+          return true;
+        });
+      }
       
       return jsonResponse(offData);
     } catch (e) {

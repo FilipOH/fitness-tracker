@@ -2862,19 +2862,42 @@
             const resultsContainer = document.getElementById('searchResults');
             resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Searching...</p>';
 
-            function getScore(name, queryStr) {
+            function getScore(name, brand, queryStr) {
                 if (!name) return 0;
                 const n = name.toLowerCase();
+                const b = (brand || '').toLowerCase();
                 const q = queryStr.toLowerCase();
                 const qWords = q.split(/\s+/).filter(x => x);
                 
-                if (n === q) return 1000;
-                if (n.startsWith(q)) return 500 - n.length;
-                if (n.includes(q)) return 200 - n.length;
+                let score = 0;
+
+                // 1. Exact Match (Highest bonus)
+                if (n === q) score += 5000;
                 
-                // Content match regardless of order
-                if (qWords.every(w => n.includes(w))) return 100 - n.length;
-                return 0;
+                // 2. Starts with query
+                if (n.startsWith(q)) score += 2000;
+
+                // 3. Simple inclusion bonus
+                if (n.includes(q)) score += 500;
+
+                // 4. Content match regardless of order (The "Maggi Noodle" fix)
+                if (qWords.every(w => n.includes(w) || b.includes(w))) {
+                    score += 300;
+                    // Extra bonus if all words are in the name specifically
+                    if (qWords.every(w => n.includes(w))) score += 200;
+                }
+
+                // 5. Shortness bonus (Staples like "Milk" or "Banana" are shorter than complex products)
+                score += Math.max(0, 100 - n.length);
+
+                // 6. Brand match bonus
+                if (qWords.some(w => b.includes(w))) score += 100;
+
+                // 7. Language heuristic: penalty for names that look like they might be foreign or excessive symbols 
+                // if searching for English terms
+                if (!/[^a-zA-Z0-9\s]/.test(n)) score += 50;
+
+                return score;
             }
 
             try {
@@ -2887,7 +2910,7 @@
                         const name = m.MealName.toLowerCase();
                         return qWords.every(w => name.includes(w));
                     })
-                    .sort((a,b) => getScore(b.MealName, query) - getScore(a.MealName, query))
+                    .sort((a,b) => getScore(b.MealName, '', query) - getScore(a.MealName, '', query))
                     .slice(0, 10);
                 
                 // 2. History Search (Past logs)
@@ -2904,7 +2927,7 @@
                                 cals: item.Value,
                                 pro: item.Protein || 0,
                                 nutrients: item.Nutrients,
-                                score: getScore(baseNote, query)
+                                score: getScore(baseNote, '', query)
                             });
                             seen.add(baseNote);
                         }
@@ -2919,7 +2942,7 @@
                     const offResponse = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${API_KEY}`, {
                         headers: { 'x-api-key': API_KEY }
                     });
-                     // ...Existing error handling...
+                    
                     if (!offResponse.ok) {
                         offError = `Service Error: ${offResponse.status}`;
                         throw new Error(offError);
@@ -2934,7 +2957,7 @@
                             brand: p.brands,
                             cals: Math.round(n['energy-kcal_100g'] || 0),
                             pro: n.proteins_100g || 0,
-                            score: getScore(p.product_name, query),
+                            score: getScore(p.product_name, p.brands, query),
                             nutrients: {
                                 'fat': n.fat_100g || 0,
                                 'carbs': n.carbohydrates_100g || 0,
@@ -2946,10 +2969,6 @@
                                 'vitamin-e': (n['vitamin-e_100g'] || 0) * 1000,   
                                 'vitamin-k': (n['vitamin-k_100g'] || 0) * 1000000, 
                                 'calcium': (n.calcium_100g || 0) * 1000,
-                                'iron': (n.iron_100g || 0) * 1000,
-                                'magnesium': (n.magnesium_100g || 0) * 1000,
-                                'potassium': (n.potassium_100g || 0) * 1000,
-                                'sodium': (n.sodium_100g || 0) * 1000,             
                                 'zinc': (n.zinc_100g || 0) * 1000,
                                 'source': 'Open Food Facts'
                             }
