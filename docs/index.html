@@ -92,15 +92,8 @@
         table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
         th { text-align: left; color: var(--sub); padding: 8px; border-bottom: 1px solid #333; }
         td { padding: 8px; border-bottom: 1px solid #222; }
-        .ing-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 5px; margin-bottom: 5px; width: 100%; box-sizing: border-box; }
-        .ing-row input { padding: 10px; font-size: 0.9em; border-radius: 8px; width: 100%; box-sizing: border-box; }
+        .ing-row { margin-bottom: 15px; width: 100%; box-sizing: border-box; }
         .ing-label { font-size: 0.75em; color: var(--accent); margin-top: 10px; margin-bottom: 3px; font-weight: bold; text-transform: uppercase; }
-        @media (max-width: 480px) {
-            .ing-row { grid-template-columns: 1fr 1fr; }
-            .ing-row input:first-child { grid-column: span 2; }
-            .ing-row input:nth-child(2) { grid-column: span 2; }
-            #mealSearchInput { padding: 15px !important; } /* Better touch target */
-        }
         .chart-container { background: var(--card); padding: 10px; border-radius: 12px; height: 200px; }
         
         /* Toast Notification Styling */
@@ -1927,24 +1920,27 @@
             
             const div = document.createElement('div');
             div.className = 'ing-row';
-            div.style = 'background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #333;';
+            div.style = 'background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #333; display: block;';
             div.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <span style="font-size: 0.75em; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Ingredient ${index}</span>
-                    <button onclick="this.parentElement.parentElement.remove(); reindexIngredients();" style="background:transparent; color:#ff4444; border:none; padding:5px; font-size:1.1em; cursor:pointer;" title="Remove"><i class="fas fa-trash-alt"></i></button>
+                <!-- Row 1: Header -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
+                    <span style="font-size: 0.75em; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 0.8px;">Ingredient ${index}</span>
+                    <button onclick="this.parentElement.parentElement.remove(); reindexIngredients();" style="background:rgba(255,255,255,0.05); color:#ff4444; border:none; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor:pointer;" title="Remove"><i class="fas fa-trash-alt"></i></button>
                 </div>
                 
-                <div class="form-row" style="margin-bottom: 10px;">
-                    <label style="font-size: 0.7em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Name</label>
-                    <input type="text" placeholder="e.g. Chicken Breast" value="${name}" style="padding:10px; font-size:0.9em; width: 100%; border-radius: 6px; border: 1px solid #444; background: #222; color: white;">
+                <!-- Row 2: Name -->
+                <div style="margin-bottom: 12px;">
+                    <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase; letter-spacing: 0.5px;">Ingredient Name</label>
+                    <input type="text" placeholder="e.g. Chicken Breast" value="${name}" style="padding:10px; font-size:16px; width: 100% !important; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; display: block;">
                 </div>
 
+                <!-- Row 3: Stats Grid -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                    <div>
-                        <label style="font-size: 0.7em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Amount</label>
+                    <div style="display: flex; flex-direction: column;">
+                        <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Amount</label>
                         <div style="position:relative; display:flex;">
-                            <input type="number" placeholder="Amt" value="${qty}" style="padding:10px; width:100%; font-size:0.85em; padding-right: 32px; border-radius: 6px; border: 1px solid #444; background: #222; color: white;" title="Amount">
-                            <select class="ing-unit" style="position:absolute; right:1px; top:1px; bottom:1px; width: 30px; background:var(--bg); color:var(--accent); border:none; border-left:1px solid #444; font-size:0.7em; padding:0 2px; border-radius:0 6px 6px 0; -webkit-appearance: none; appearance: none; text-align: center;">
+                            <input type="number" placeholder="Amt" value="${qty}" style="padding:10px; width:100%; font-size:16px; padding-right: 32px; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box;" title="Amount">
+                            <select class="ing-unit" style="position:absolute; right:1px; top:1px; bottom:1px; width: 34px; background:var(--bg); color:var(--accent); border:none; border-left:1px solid #444; font-size:11px; padding:0 2px; border-radius:0 8px 8px 0; -webkit-appearance: none; appearance: none; text-align: center;">
                                 <option value="g" ${unit === 'g' ? 'selected' : ''}>g</option>
                                 <option value="ml" ${unit === 'ml' ? 'selected' : ''}>ml</option>
                                 <option value="tbsp" ${unit === 'tbsp' ? 'selected' : ''}>tbsp</option>
@@ -1953,13 +1949,13 @@
                             </select>
                         </div>
                     </div>
-                    <div>
-                        <label style="font-size: 0.7em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Calories</label>
-                        <input type="number" placeholder="Cals" class="ing-cals" value="${cals}" style="padding:10px; font-size:0.85em; width: 100%; border-radius: 6px; border: 1px solid #444; background: #222; color: white;" title="Calories">
+                    <div style="display: flex; flex-direction: column;">
+                        <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Calories</label>
+                        <input type="number" placeholder="Cals" class="ing-cals" value="${cals}" style="padding:10px; font-size:16px; width: 100%; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box;" title="Calories">
                     </div>
-                    <div>
-                        <label style="font-size: 0.7em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Protein</label>
-                        <input type="number" placeholder="Prot" class="ing-pro" value="${pro}" style="padding:10px; font-size:0.85em; width: 100%; border-radius: 6px; border: 1px solid #444; background: #222; color: white;" title="Protein">
+                    <div style="display: flex; flex-direction: column;">
+                        <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Protein</label>
+                        <input type="number" placeholder="Prot" class="ing-pro" value="${pro}" style="padding:10px; font-size:16px; width: 100%; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box;" title="Protein">
                     </div>
                 </div>
             `;
