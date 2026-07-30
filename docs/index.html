@@ -2877,6 +2877,10 @@
                 // 2. Starts with query
                 if (n.startsWith(q)) score += 2000;
 
+                // 2.5 Standalone word match (e.g. "Milk" as a full word vs "Milky")
+                const nameWords = n.split(/[^a-z0-9]/).filter(x => x);
+                if (qWords.every(qw => nameWords.includes(qw))) score += 1500;
+
                 // 3. Simple inclusion bonus
                 if (n.includes(q)) score += 500;
 
@@ -2892,6 +2896,10 @@
 
                 // 6. Brand match bonus
                 if (qWords.some(w => b.includes(w))) score += 100;
+
+                // 6.5 UK Supermarket Bonus (Boost common local brands)
+                const ukBrands = ['tesco', 'aldi', 'asda', 'sainsbury', 'morrisons', 'lidl', 'waitrose', 'm&s', 'marks'];
+                if (ukBrands.some(ub => b.includes(ub))) score += 800;
 
                 // 7. Language heuristic: penalty for names that look like they might be foreign or excessive symbols 
                 // if searching for English terms
