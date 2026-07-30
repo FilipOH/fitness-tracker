@@ -601,6 +601,10 @@
                     if (!db.objectStoreNames.contains('mealsCache')) {
                         db.createObjectStore('mealsCache', { keyPath: 'MealName' });
                     }
+                    // Local cache for goals
+                    if (!db.objectStoreNames.contains('configCache')) {
+                        db.createObjectStore('configCache', { keyPath: 'key' });
+                    }
                 };
             });
         }
@@ -1358,6 +1362,24 @@
         }
 
         async function fetchGoals() {
+            // Try to load from cache first
+            try {
+                const db = await initDB();
+                const transaction = db.transaction(['configCache'], 'readonly');
+                const store = transaction.objectStore('configCache');
+                const request = store.get('goals');
+                request.onsuccess = (e) => {
+                    const cached = e.target.result;
+                    if (cached) {
+                        goals = cached.data.goals;
+                        goalHistory = cached.data.history || [];
+                        renderGoals();
+                    }
+                };
+            } catch (e) {
+                console.error("Error reading goals cache", e);
+            }
+
             try {
                 showLoading();
                 const res = await fetch(`${API_BASE}/config?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
@@ -1367,15 +1389,12 @@
                         goals = data.goals;
                         goalHistory = data.history || []; // Load goal history
                         
-                        document.getElementById('g-weekly-net').value = goals.weeklyNet;
-                        document.getElementById('g-weekly-comparison').value = goals.weeklyComparison || 'less';
-                        document.getElementById('g-protein').value = goals.protein;
-                        document.getElementById('g-sleep').value = goals.sleep;
-                        document.getElementById('g-gym').value = goals.gym;
+                        // Save to cache
+                        const db = await initDB();
+                        const transaction = db.transaction(['configCache'], 'readwrite');
+                        transaction.objectStore('configCache').put({ key: 'goals', data: data });
                         
-                        // Set effective date to today by default for new changes
-                        const ukDate = getUKDateTime();
-                        document.getElementById('g-effective-date').value = ukDate.date;
+                        renderGoals();
                     }
                 }
                 hideLoading();
@@ -1383,6 +1402,19 @@
                 hideLoading();
                 console.log("Using default goals", e); 
             }
+        }
+
+        function renderGoals() {
+            if (!goals) return;
+            document.getElementById('g-weekly-net').value = goals.weeklyNet;
+            document.getElementById('g-weekly-comparison').value = goals.weeklyComparison || 'less';
+            document.getElementById('g-protein').value = goals.protein;
+            document.getElementById('g-sleep').value = goals.sleep;
+            document.getElementById('g-gym').value = goals.gym;
+            
+            // Set effective date to today by default for new changes
+            const ukDate = getUKDateTime();
+            document.getElementById('g-effective-date').value = ukDate.date;
         }
 
         async function saveGoals() {
@@ -2062,45 +2094,29 @@
             document.getElementById('m-portions').value = meal.Portions || 1;
             document.getElementById('m-protein').value = meal.Protein || 0;
             
+            // Ensure we are in "meal" mode (not "quick food")
+            switchMealType('meal');
+            
             // Clear and repopulate ingredients
             const container = document.getElementById('ingredientsList');
             container.innerHTML = '';
+            
             if (meal.Ingredients && meal.Ingredients.length > 0) {
                 meal.Ingredients.forEach(ing => {
                     const div = document.createElement('div');
                     div.className = 'ing-row';
-                    div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ing.desc || ''}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
+                    // We check for all possible name properties from migration or API
+                    const ingName = ing.desc || ing.item || ing.name || '';
+                    div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ingName}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
                     container.appendChild(div);
-                });
-            } else {
-                // Add one empty row if no ingredients
-                const div = document.createElement('div');
-                div.className = 'ing-row';
-                div.innerHTML = '<input type="text" placeholder="Ingredient"><input type="text" placeholder="Qty"><input type="number" placeholder="Cals" class="ing-cals">';
-                container.appendChild(div);
-            }
-            
-            // Scroll to form
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            showToast('Meal loaded for editing', 'edit');
-            document.getElementById('m-portions').value = meal.Portions;
-            document.getElementById('m-protein').value = meal.Protein || 0;
-            
-            const list = document.getElementById('ingredientsList');
-            list.innerHTML = '';
-            
-            if (meal.Ingredients && meal.Ingredients.length > 0) {
-                meal.Ingredients.forEach(ing => {
-                    const div = document.createElement('div');
-                    div.className = 'ing-row';
-                    div.innerHTML = `<input type="text" placeholder="Ingredient" value="${ing.desc || ing.item || ''}"><input type="text" placeholder="Qty" value="${ing.qty || ''}"><input type="number" placeholder="Cals" class="ing-cals" value="${ing.cals || 0}">`;
-                    list.appendChild(div);
                 });
             } else {
                 addIngredientLine();
             }
             
+            // Scroll to the meal creation area
             document.getElementById('mealsTab').scrollIntoView({ behavior: 'smooth' });
+            showToast('Meal loaded for editing', 'edit');
         }
 
         async function logQuickFood(name, calories, protein) {
@@ -2485,12 +2501,47 @@
                     // Energy is usually in kcal or kJ. Prefers kcal.
                     // OFF values are typically "per 100g"
                     const energyKcal = p.nutriments['energy-kcal_100g'] || p.nutriments['energy_100g'];
-                    const protein100g = p.nutriments['protein_100g'] || 0;
+                    const protein100g = p.nutriments['proteins_100g'] || p.nutriments['protein_100g'] || 0;
                     
                     if (energyKcal) {
-                        document.getElementById('foodNote').value = name + brand;
-                        document.getElementById('foodCals').value = Math.round(energyKcal);
-                        document.getElementById('foodPro').value = Math.round(protein100g);
+                        // Check if we are currently in the Meals tab, if so, map to the Meal form
+                        if (document.getElementById('mealsTab').style.display !== 'none') {
+                            if (currentMealType === 'food') {
+                                document.getElementById('m-name').value = name + brand;
+                                document.getElementById('m-quickcals').value = Math.round(energyKcal);
+                                document.getElementById('m-protein').value = Math.round(protein100g);
+                            } else {
+                                // Add to ingredients list
+                                const list = document.getElementById('ingredientsList');
+                                // Remove placeholder row if it's the only one and is empty
+                                const rows = list.querySelectorAll('.ing-row');
+                                if (rows.length === 1) {
+                                    const inputs = rows[0].querySelectorAll('input');
+                                    if (!inputs[0].value && !inputs[1].value && !inputs[2].value) {
+                                        rows[0].remove();
+                                    }
+                                }
+                                
+                                const div = document.createElement('div');
+                                div.className = 'ing-row';
+                                div.innerHTML = `
+                                    <input type="text" placeholder="Ingredient" value="${name}${brand}">
+                                    <input type="text" placeholder="Qty" value="100g">
+                                    <input type="number" placeholder="Cals" class="ing-cals" value="${Math.round(energyKcal)}">
+                                `;
+                                list.appendChild(div);
+                            }
+                        } else {
+                            // Default to the Log tab Quick Food fields
+                            document.getElementById('foodNote').value = name + brand;
+                            document.getElementById('foodCals').value = Math.round(energyKcal);
+                            document.getElementById('foodPro').value = Math.round(protein100g);
+                            // Switch to FOOD type if on LOG tab
+                            if (document.getElementById('logTab').style.display !== 'none') {
+                                document.getElementById('entryType').value = 'FOOD';
+                                toggleFields();
+                            }
+                        }
                         showToast(`Found: ${name} (per 100g)`);
                     } else {
                         showToast("Product found, but no calorie data available", "exclamation-triangle");
