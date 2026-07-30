@@ -198,11 +198,12 @@ async function handleApiRequest(request, env) {
     
     if (!data) return jsonResponse({ error: 'Data is missing' }, 400);
 
-    const { date, time, type, foodName, note, calories, value, protein, exercise, weight, reps, amount, amountUnit } = data;
+    const { date, time, type, foodName, note, calories, value, protein, exercise, weight, reps, amount, amountUnit, nutrients } = data;
     if (!date) return jsonResponse({ error: 'Date is required' }, 400);
 
     const finalFoodName = foodName || note || '';
     const finalCalories = calories !== undefined ? calories : (value || 0);
+    const nutrientsJson = nutrients ? JSON.stringify(nutrients) : null;
     
     // Ensure time is never null/empty for the database
     let finalTime = time;
@@ -213,9 +214,9 @@ async function handleApiRequest(request, env) {
     try {
       if (type === 'FOOD') {
         await env.DB.prepare(`
-          INSERT INTO food_logs (user_id, date, time, food_name, calories, protein, amount, amount_unit)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(userId, date, finalTime, finalFoodName, Number(finalCalories), Number(protein || 0), amount || null, amountUnit || null).run();
+          INSERT INTO food_logs (user_id, date, time, food_name, calories, protein, amount, amount_unit, nutrients_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(userId, date, finalTime, finalFoodName, Number(finalCalories), Number(protein || 0), amount || null, amountUnit || null, nutrientsJson).run();
       } else if (type === 'GYM') {
         await env.DB.prepare(`
           INSERT INTO gym_logs (user_id, date, time)
@@ -296,7 +297,18 @@ async function handleApiRequest(request, env) {
     }
 
     const items = [];
-    foodLogs.results?.forEach(l => items.push({ PK: l.date, SK: `FOOD#${l.time}#${l.log_id}`, Type: 'FOOD', Value: l.calories, Protein: l.protein, Date: l.date, Time: l.time, Note: l.food_name, logId: l.log_id }));
+    foodLogs.results?.forEach(l => items.push({ 
+      PK: l.date, 
+      SK: `FOOD#${l.time}#${l.log_id}`, 
+      Type: 'FOOD', 
+      Value: l.calories, 
+      Protein: l.protein, 
+      Date: l.date, 
+      Time: l.time, 
+      Note: l.food_name, 
+      logId: l.log_id,
+      Nutrients: l.nutrients_json
+    }));
     gymLogs.results?.forEach(l => items.push({ PK: l.date, SK: `GYM#${l.time}#${l.log_id}`, Type: 'GYM', Date: l.date, Time: l.time, logId: l.log_id }));
     exerciseLogs.results?.forEach(l => items.push({ PK: l.date, SK: `EXERCISE#${l.time}#${l.log_id}`, Type: 'EXERCISE', Date: l.date, Time: l.time, Exercise: l.exercise_name, Weight: l.weight_kg, Reps: l.reps, logId: l.log_id }));
     dailyMetrics.results?.forEach(m => items.push({ PK: m.date, SK: `METRIC#${m.metric_type}`, Type: m.metric_type, Value: m.value, Date: m.date }));
@@ -337,7 +349,8 @@ async function handleApiRequest(request, env) {
           qty: i.amount,
           unit: i.amount_units,
           cals: i.calories,
-          pro: i.protein
+          pro: i.protein,
+          nutrients: i.nutrients_json ? JSON.parse(i.nutrients_json) : null
         }))
       };
     });
@@ -373,15 +386,16 @@ async function handleApiRequest(request, env) {
       for (const ing of ingredients) {
         if (ing.desc || isQuickFood) {
           await env.DB.prepare(`
-            INSERT INTO ingredients (meal_id, name, amount, amount_units, calories, protein)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO ingredients (meal_id, name, amount, amount_units, calories, protein, nutrients_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `).bind(
             mealId, 
             ing.desc || finalName, 
             Number(ing.qty || 0), 
             ing.unit || 'g', 
             Number(ing.cals || 0), 
-            Number(ing.pro || 0)
+            Number(ing.pro || 0),
+            ing.nutrients ? JSON.stringify(ing.nutrients) : null
           ).run();
         }
       }

@@ -149,10 +149,56 @@
             display: flex;
             gap: 15px;
         }
+
+        /* Search Overlay */
+        #searchOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 6000;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        #searchResults {
+            flex: 1;
+            overflow-y: auto;
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .search-item {
+            background: #222;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .search-item:hover {
+            border-color: var(--accent);
+            background: #2a2a2a;
+        }
     </style>
 </head>
 <body>
     <div id="toast-container" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 20px); right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;"></div>
+    
+    <!-- Food Search Overlay -->
+    <div id="searchOverlay">
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="searchInput" placeholder="Search food (e.g. Banana)" style="flex: 1; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #444; background: #222; color: white;">
+            <button onclick="closeSearch()" style="background: rgba(255,255,255,0.1); border: none; color: white; padding: 10px 15px; border-radius: 8px; cursor: pointer;">Cancel</button>
+        </div>
+        <div id="searchResults">
+            <p style="color: var(--sub); text-align: center; margin-top: 50px;">Type to search your history and Open Food Facts...</p>
+        </div>
+    </div>
     
     <!-- Barcode Scanner Overlay -->
     <div id="scannerOverlay">
@@ -278,7 +324,12 @@
                     <!-- Row 4: Item Name -->
                     <div class="form-row">
                         <label>Item Name</label>
-                        <input type="text" id="foodNote" placeholder="e.g. Chicken Salad">
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="foodNote" placeholder="e.g. Chicken Salad" style="flex: 1;">
+                            <button onclick="openSearch('log')" style="background: var(--accent); color: white; border: none; width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer;" title="Search Food Database">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Row 5: Calories & Protein -->
@@ -409,6 +460,12 @@
         
         <div class="chart-container"><canvas id="weightChart"></canvas></div>
         <div class="chart-container" style="margin-top: 15px;"><canvas id="calorieChart"></canvas></div>
+
+        <!-- 7-Day Micronutrient Average Section -->
+        <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">7-Day Micronutrient Avg</h2>
+        <div id="micro-dashboard" class="card" style="padding: 15px;">
+            <p style="font-size: 0.8em; color: var(--sub); text-align: center;">Calculating averages...</p>
+        </div>
     </div>
 
         <div id="mealsTab" class="tab-content">
@@ -421,7 +478,15 @@
         
         <div class="card">
             <h3 id="createTitle">Create New Meal</h3>
-            <div class="form-row"><label>Name</label><input type="text" id="m-name"></div>
+            <div class="form-row">
+                <label>Name</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="m-name" style="flex: 1;">
+                    <button onclick="openSearch('quick')" style="background: var(--accent); color: white; border: none; width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer;" title="Search Food Database">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
             
             <div id="mealFields">
                 <div class="form-row"><label>Portions</label><input type="number" id="m-portions" value="1"></div>
@@ -566,9 +631,108 @@
         const logPageSize = 25;
         let weekPage = 1;
         const weekPageSize = 5;
+
+        const RDI_DATA = {
+            'fiber': { label: 'Fiber', goal: 38, unit: 'g' },
+            'sugar': { label: 'Sugar (Max)', goal: 36, unit: 'g', max: true },
+            'vitamin-a': { label: 'Vitamin A', goal: 900, unit: 'mcg' },
+            'vitamin-c': { label: 'Vitamin C', goal: 90, unit: 'mg' },
+            'vitamin-d': { label: 'Vitamin D', goal: 20, unit: 'mcg' },
+            'vitamin-e': { label: 'Vitamin E', goal: 15, unit: 'mg' },
+            'vitamin-k': { label: 'Vitamin K', goal: 120, unit: 'mcg' },
+            'calcium': { label: 'Calcium', goal: 1000, unit: 'mg' },
+            'iron': { label: 'Iron', goal: 8, unit: 'mg' },
+            'magnesium': { label: 'Magnesium', goal: 400, unit: 'mg' },
+            'potassium': { label: 'Potassium', goal: 3400, unit: 'mg' },
+            'zinc': { label: 'Zinc', goal: 11, unit: 'mg' },
+            'sodium': { label: 'Sodium (Max)', goal: 2300, unit: 'mg', max: true }
+        };
+
+        function calculateMicroAverages(items) {
+            const ukDate = getUKDateTime();
+            const today = new Date(ukDate.date);
+            const sevenDaysAgo = new Date(today);
+            sevenDaysAgo.setDate(today.getDate() - 6);
+            
+            const formatDate = (d) => d.toISOString().split('T')[0];
+            const startDateStr = formatDate(sevenDaysAgo);
+            
+            // Only look at the last 7 days of logs
+            const last7DaysItems = items.filter(i => i.PK >= startDateStr && i.Type === 'FOOD');
+            
+            const totals = {};
+            // Initialize totals
+            Object.keys(RDI_DATA).forEach(k => totals[k] = 0);
+            
+            last7DaysItems.forEach(item => {
+                const nutrients = item.Nutrients;
+                let nObj = null;
+                if (typeof nutrients === 'string') {
+                    try { nObj = JSON.parse(nutrients); } catch (e) {}
+                } else {
+                    nObj = nutrients;
+                }
+                
+                if (nObj) {
+                    Object.keys(RDI_DATA).forEach(key => {
+                        if (nObj[key]) totals[key] += parseFloat(nObj[key]);
+                    });
+                }
+            });
+            
+            const averages = {};
+            Object.keys(totals).forEach(key => {
+                averages[key] = totals[key] / 7;
+            });
+            
+            return averages;
+        }
+
+        function renderMicroDashboard(items) {
+            const container = document.getElementById('micro-dashboard');
+            if (!container) return;
+            
+            const averages = calculateMicroAverages(items);
+            
+            let html = `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">`;
+            
+            const sortedKeys = Object.keys(RDI_DATA);
+            
+            sortedKeys.forEach(key => {
+                const rdi = RDI_DATA[key];
+                const avg = averages[key] || 0;
+                const percent = Math.min((avg / rdi.goal) * 100, 100);
+                
+                let color = 'var(--accent)';
+                if (rdi.max) {
+                    color = avg > rdi.goal ? 'var(--red)' : 'var(--green)';
+                } else {
+                    color = avg >= rdi.goal * 0.8 ? 'var(--green)' : (avg >= rdi.goal * 0.5 ? 'var(--accent)' : 'var(--red)');
+                }
+                
+                html += `
+                    <div style="background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px; border: 1px solid #333;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px;">
+                            <span style="font-size: 0.7em; color: var(--sub); text-transform: uppercase;">${rdi.label}</span>
+                            <span style="font-size: 0.8em; font-weight: bold; color: ${color};">${avg.toFixed(1)}${rdi.unit}</span>
+                        </div>
+                        <div style="height: 4px; background: #333; border-radius: 2px; overflow: hidden;">
+                            <div style="width: ${percent}%; height: 100%; background: ${color}; border-radius: 2px;"></div>
+                        </div>
+                        <div style="font-size: 0.6em; color: #555; margin-top: 3px; text-align: right;">Target: ${rdi.goal}${rdi.unit}</div>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`;
+            container.innerHTML = html;
+        }
         let db = null; // IndexedDB instance
         let isSyncing = false;
         let currentMealType = 'meal'; // 'meal' or 'food'
+        let lastScannedNutrients = null; // Store rich nutrient data from barcode
+        let isAutoCalculating = false; // Flag to prevent recursion/toast spam
+        let ratioLock = null; // Store base ratios for auto-calc
 
         // ==================== OFFLINE PWA SUPPORT ====================
         
@@ -1857,9 +2021,43 @@
                     ? (i.Note === 'bench' ? 'Bench Press' : i.Note === 'squat' ? 'Squat' : i.Note === '5k' ? '5K Run' : 'Pullups')
                     : (i.Note || '');
                 
-                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${noteDisplay}</td><td>${deleteBtn}</td></tr>`;
+                const nutrientsBtn = (i.Type === 'FOOD' && i.Nutrients) 
+                    ? `<button onclick="showNutrientDetails('${i.PK}','${i.SK}')" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1em; margin-left: 5px;" title="View Micronutrients"><i class="fas fa-info-circle"></i></button>`
+                    : '';
+                
+                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${noteDisplay}${nutrientsBtn}</td><td>${deleteBtn}</td></tr>`;
             });
             document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
+        }
+
+        function showNutrientDetails(pk, sk) {
+            const item = allRawItems.find(i => i.PK === pk && i.SK === sk);
+            if (!item || !item.Nutrients) return;
+            
+            const n = typeof item.Nutrients === 'string' ? JSON.parse(item.Nutrients) : item.Nutrients;
+            const content = `
+                <div style="text-align:left;">
+                    <p><b>Fat:</b> ${n.fat || 0}g</p>
+                    <p><b>Carbs:</b> ${n.carbs || 0}g</p>
+                    <p><b>Sugar:</b> ${n.sugar || 0}g</p>
+                    <p><b>Fiber:</b> ${n.fiber || 0}g</p>
+                    <p><b>Sodium:</b> ${n.sodium || 0}mg</p>
+                    <p style="font-size:0.8em; color:var(--sub); margin-top:10px;">Source: ${n.source || 'Unknown'}</p>
+                </div>
+            `;
+            
+            // Reusing the general message/modal pattern if exists, otherwise alert for now
+            // But let's create a quick clean modal overlay
+            const modal = document.createElement('div');
+            modal.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9000; display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;";
+            modal.innerHTML = `
+                <div class="card" style="width:100%; max-width:300px; padding:20px; position:relative;">
+                    <h3 style="color:var(--accent); margin-top:0;">Nutrient Details</h3>
+                    ${content}
+                    <button class="submit" style="margin-top:15px;" onclick="this.parentElement.parentElement.remove()">Close</button>
+                </div>
+            `;
+            document.body.appendChild(modal);
         }
 
         async function deleteLogEntry(pk, sk) {
@@ -1899,6 +2097,37 @@
             document.getElementById('sleepForm').style.display = type === 'SLEEP' ? 'block' : 'none';
             document.getElementById('weightForm').style.display = type === 'WEIGHT' ? 'block' : 'none';
             document.getElementById('exerciseForm').style.display = type === 'EXERCISE' ? 'block' : 'none';
+            
+            // Setup auto-calculator listeners if not already present
+            setupAutoCalc();
+        }
+
+        function setupAutoCalc() {
+            const qtyInput = document.getElementById('foodQty');
+            const calInput = document.getElementById('foodCals');
+            const proInput = document.getElementById('foodPro');
+            
+            if (!qtyInput || qtyInput.dataset.listener) return;
+
+            qtyInput.addEventListener('input', () => {
+                if (!ratioLock) return;
+                const qty = parseFloat(qtyInput.value) || 0;
+                isAutoCalculating = true;
+                calInput.value = Math.round(qty * ratioLock.cal_per_unit);
+                proInput.value = Math.round(qty * ratioLock.pro_per_unit);
+                isAutoCalculating = false;
+            });
+
+            // If user manually edits Cals/Pro, break the ratio lock
+            [calInput, proInput].forEach(el => {
+                el.addEventListener('input', () => {
+                    if (isAutoCalculating || !ratioLock) return;
+                    ratioLock = null;
+                    showToast('Manual override: Auto-calc off', 'info');
+                });
+            });
+
+            qtyInput.dataset.listener = 'true';
         }
 
         function toggleSavedMeals() {
@@ -1914,24 +2143,31 @@
             }
         }
 
-        function addIngredientLine(name = '', qty = '', cals = '', pro = '', unit = 'g') {
+        function addIngredientLine(name = '', qty = '', cals = '', pro = '', unit = 'g', nutrients = null) {
             const container = document.getElementById('ingredientsList');
             const index = container.children.length + 1;
             
             const div = document.createElement('div');
             div.className = 'ing-row';
+            div.dataset.nutrients = nutrients ? JSON.stringify(nutrients) : '';
             div.style = 'background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #333; display: block;';
             div.innerHTML = `
                 <!-- Row 1: Header -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
                     <span style="font-size: 0.75em; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 0.8px;">Ingredient ${index}</span>
                     <button onclick="this.parentElement.parentElement.remove(); reindexIngredients();" style="background:rgba(255,255,255,0.05); color:#ff4444; border:none; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor:pointer;" title="Remove"><i class="fas fa-trash-alt"></i></button>
+                    ${nutrients ? '<i class="fas fa-microscope" style="color:var(--accent); font-size: 0.8em;" title="Has Micros"></i>' : ''}
                 </div>
                 
                 <!-- Row 2: Name -->
                 <div style="margin-bottom: 12px;">
                     <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase; letter-spacing: 0.5px;">Ingredient Name</label>
-                    <input type="text" placeholder="e.g. Chicken Breast" value="${name}" style="padding:10px; font-size:16px; width: 100% !important; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; display: block;">
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" placeholder="e.g. Chicken Breast" value="${name}" style="padding:10px; font-size:16px; flex: 1; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; display: block;">
+                        <button onclick="openSearch('ing', this.previousElementSibling)" style="background: var(--accent); color: white; border: none; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer;" title="Search Food Database">
+                            <i class="fas fa-search" style="font-size: 0.9em;"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Row 3: Stats Grid -->
@@ -2031,6 +2267,7 @@
                 const quickUnit = document.getElementById('m-quickunit').value || 'unit';
                 const quickCals = document.getElementById('m-quickcals').value;
                 const quickPro = document.getElementById('m-quickpro').value;
+                
                 if (!quickCals || parseFloat(quickCals) <= 0) {
                     showToast('Please enter calories for quick food', 'exclamation-triangle');
                     return;
@@ -2038,13 +2275,15 @@
                 totalCals = parseFloat(quickCals);
                 totalPro = parseFloat(quickPro || 0);
                 portions = 1;
+                
                 // For quick food exactly one ingredient
                 ings = [{
                     desc: name,
                     qty: parseFloat(quickQty),
                     unit: quickUnit,
                     cals: totalCals,
-                    pro: totalPro
+                    pro: totalPro,
+                    nutrients: lastScannedNutrients // Use the nutrients from the scan if available
                 }];
             } else {
                 // Multi-ingredient meal
@@ -2054,6 +2293,7 @@
                     const numInputs = row.querySelectorAll('input[type="number"]');
                     const unitElem = row.querySelector('.ing-unit');
                     const unit = unitElem ? unitElem.value : 'g';
+                    const nutrientsJson = row.dataset.nutrients;
                     
                     if (nameInput && nameInput.value) {
                         ings.push({ 
@@ -2061,7 +2301,8 @@
                             qty: parseFloat(numInputs[0].value || 0),
                             unit: unit,
                             cals: parseFloat(numInputs[1].value || 0),
-                            pro: parseFloat(numInputs[2].value || 0)
+                            pro: parseFloat(numInputs[2].value || 0),
+                            nutrients: nutrientsJson ? JSON.parse(nutrientsJson) : null
                         });
                         totalCals += parseFloat(numInputs[1].value || 0);
                         totalPro += parseFloat(numInputs[2].value || 0);
@@ -2083,6 +2324,9 @@
                 });
                 hideLoading();
                 showToast(isQuickFood ? 'Quick Food Saved' : 'Meal Saved');
+                
+                // Clear state
+                lastScannedNutrients = null;
                 
                 // Refresh the meals list and cache
                 await loadMeals();
@@ -2245,7 +2489,7 @@
                     meal.Ingredients.forEach(ing => {
                         const ingName = ing.desc || ing.name || '';
                         const ingPro = ing.pro || ing.protein || 0;
-                        addIngredientLine(ingName, ing.qty || '', ing.cals || 0, ingPro, ing.unit || 'g');
+                        addIngredientLine(ingName, ing.qty || '', ing.cals || 0, ingPro, ing.unit || 'g', ing.nutrients);
                     });
                 } else {
                     addIngredientLine();
@@ -2392,11 +2636,15 @@
                 time: customTime,
                 date: selectedDate,
                 amount: document.getElementById('foodQty') ? parseFloat(document.getElementById('foodQty').value || 0) : null,
-                amountUnit: document.getElementById('foodUnit') ? document.getElementById('foodUnit').value : null
+                amountUnit: document.getElementById('foodUnit') ? document.getElementById('foodUnit').value : null,
+                nutrients: lastScannedNutrients
             };
 
             // Optimistically update UI and Cache
             await optimisticUpdate(payload);
+            
+            // Success indicator (lastScannedNutrients cleared on success)
+            lastScannedNutrients = null;
 
             // Create appropriate display message for offline queue
             let displayInfo = `${type} entry`;
@@ -2562,6 +2810,193 @@
             }
         }
 
+        // ==================== FOOD SEARCH LOGIC ====================
+        let activeSearchContext = null;
+        let activeSearchElement = null;
+        let searchDebounce = null;
+
+        function openSearch(context, element = null) {
+            activeSearchContext = context;
+            activeSearchElement = element;
+            document.getElementById('searchOverlay').style.display = 'flex';
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchResults').innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Type to search your history and Open Food Facts...</p>';
+            setTimeout(() => document.getElementById('searchInput').focus(), 100);
+        }
+
+        function closeSearch() {
+            document.getElementById('searchOverlay').style.display = 'none';
+        }
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            clearTimeout(searchDebounce);
+            const query = e.target.value.trim();
+            if (query.length < 2) {
+                document.getElementById('searchResults').innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Type at least 2 characters...</p>';
+                return;
+            }
+            searchDebounce = setTimeout(() => performSearch(query), 300);
+        });
+
+        async function performSearch(query) {
+            const resultsContainer = document.getElementById('searchResults');
+            resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Searching...</p>';
+
+            try {
+                // 1. Local Search (Saved Meals & Foods)
+                const localMatches = meals.filter(m => m.MealName.toLowerCase().includes(query.toLowerCase())).slice(0, 10);
+                
+                // 2. History Search (Past logs)
+                const historyMatches = [];
+                const seen = new Set();
+                allRawItems.forEach(item => {
+                    if (item.Type === 'FOOD' && item.Note && item.Note.toLowerCase().includes(query.toLowerCase())) {
+                        const baseNote = item.Note.split(' (')[0];
+                        if (!seen.has(baseNote)) {
+                            historyMatches.push({
+                                isHistory: true,
+                                name: baseNote,
+                                cals: item.Value,
+                                pro: item.Protein || 0,
+                                nutrients: item.Nutrients
+                            });
+                            seen.add(baseNote);
+                        }
+                    }
+                });
+
+                // 3. Global Search (Open Food Facts)
+                let offMatches = [];
+                try {
+                    const offResponse = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`);
+                    const offData = await offResponse.json();
+                    offMatches = (offData.products || []).filter(p => p.product_name).map(p => ({
+                        isOFF: true,
+                        name: p.product_name,
+                        brand: p.brands,
+                        cals: Math.round(p.nutriments['energy-kcal_100g'] || 0),
+                        pro: p.nutriments.proteins_100g || 0,
+                        nutrients: {
+                            'fiber': p.nutriments.fiber_100g,
+                            'sugar': p.nutriments.sugars_100g,
+                            'vitamin-a': p.nutriments['vitamin-a_100g'],
+                            'vitamin-c': p.nutriments['vitamin-c_100g'],
+                            'vitamin-d': p.nutriments['vitamin-d_100g'],
+                            'vitamin-e': p.nutriments['vitamin-e_100g'],
+                            'vitamin-k': p.nutriments['vitamin-k_100g'],
+                            'calcium': p.nutriments.calcium_100g,
+                            'iron': p.nutriments.iron_100g,
+                            'magnesium': p.nutriments.magnesium_100g,
+                            'potassium': p.nutriments.potassium_100g,
+                            'sodium': p.nutriments.sodium_100g,
+                            'zinc': p.nutriments.zinc_100g
+                        }
+                    }));
+                } catch (e) { console.warn("OFF Search failed", e); }
+
+                resultsContainer.innerHTML = '';
+                
+                if (localMatches.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">My Saved Items</h4>';
+                    localMatches.forEach(m => renderSearchItem(resultsContainer, m.MealName, m.Calories, m.Protein, m.isQuickFood ? 'Quick Food' : 'Meal', m));
+                }
+
+                if (historyMatches.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">My History</h4>';
+                    historyMatches.slice(0, 5).forEach(m => renderSearchItem(resultsContainer, m.name, m.cals, m.pro, 'Past Entry', m));
+                }
+
+                if (offMatches.length > 0) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">Global Database</h4>';
+                    offMatches.forEach(m => renderSearchItem(resultsContainer, `${m.name} ${m.brand ? '('+m.brand+')' : ''}`, m.cals, m.pro, 'OFF (per 100g/ml)', m));
+                }
+
+                if (resultsContainer.innerHTML === '') {
+                    resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">No matches found.</p>';
+                }
+
+            } catch (err) {
+                console.error("Search error:", err);
+                resultsContainer.innerHTML = '<p style="color: var(--red); text-align: center; margin-top: 50px;">Error performing search.</p>';
+            }
+        }
+
+        function renderSearchItem(container, name, cals, pro, type, fullItem) {
+            const div = document.createElement('div');
+            div.className = 'search-item';
+            div.onclick = () => selectSearchResult(fullItem);
+            div.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex: 1; padding-right: 15px;">
+                        <span style="font-weight: bold; font-size: 0.9em; display: block; color: white;">${name}</span>
+                        <span style="font-size: 0.7em; color: var(--sub);">${type}</span>
+                    </div>
+                    <div style="text-align: right; min-width: 70px;">
+                        <span style="display: block; font-size: 0.9em; color: var(--accent); font-weight: bold;">${Math.round(cals)} cal</span>
+                        <span style="font-size: 0.7em; color: var(--sub);">${parseFloat(pro || 0).toFixed(1)}g pro</span>
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function selectSearchResult(item) {
+            const name = item.MealName || item.name;
+            const cals = item.Calories || item.cals || 0;
+            const pro = item.Protein || item.pro || 0;
+            
+            // Extract nutrients if available
+            let nutrients = item.nutrients || null;
+            if (item.isQuickFood && item.Ingredients && item.Ingredients[0]) {
+                nutrients = item.Ingredients[0].nutrients;
+            } else if (item.isHistory && item.nutrients) {
+                nutrients = typeof item.nutrients === 'string' ? JSON.parse(item.nutrients) : item.nutrients;
+            }
+
+            if (activeSearchContext === 'log') {
+                document.getElementById('foodNote').value = name;
+                document.getElementById('foodCals').value = Math.round(cals);
+                document.getElementById('foodPro').value = parseFloat(pro || 0).toFixed(1);
+                lastScannedNutrients = nutrients;
+                
+                // Set up ratioLock for scaling if it's a discrete item (OFF is per 100, History is per 1)
+                const baseQty = item.isOFF ? 100 : 1;
+                ratioLock = {
+                    cal_per_unit: cals / baseQty,
+                    pro_per_unit: pro / baseQty
+                };
+                
+                if (item.isOFF) {
+                    document.getElementById('foodQty').value = 100;
+                    document.getElementById('foodUnit').value = 'g';
+                }
+            } else if (activeSearchContext === 'quick') {
+                document.getElementById('m-name').value = name;
+                document.getElementById('m-quickcals').value = Math.round(cals);
+                document.getElementById('m-quickpro').value = parseFloat(pro || 0).toFixed(1);
+                lastScannedNutrients = nutrients;
+                
+                if (item.isOFF) {
+                    document.getElementById('m-quickqty').value = 100;
+                    document.getElementById('m-quickunit').value = 'g';
+                }
+            } else if (activeSearchContext === 'ing') {
+                const row = activeSearchElement.closest('.ing-row');
+                activeSearchElement.value = name;
+                row.querySelector('.ing-cals').value = Math.round(cals);
+                row.querySelector('.ing-pro').value = parseFloat(pro || 0).toFixed(1);
+                row.dataset.nutrients = nutrients ? JSON.stringify(nutrients) : '';
+                
+                if (item.isOFF) {
+                    row.querySelector('input[type="number"]').value = 100;
+                    row.querySelector('.ing-unit').value = 'g';
+                }
+            }
+            
+            closeSearch();
+            showToast('Loaded: ' + name);
+        }
+
         // ==================== BARCODE SCANNER LOGIC ====================
         let html5QrCode = null;
 
@@ -2616,7 +3051,23 @@
                     const energyKcal = p.nutriments['energy-kcal_100g'] || p.nutriments['energy_100g'];
                     const protein100g = p.nutriments['proteins_100g'] || p.nutriments['protein_100g'] || 0;
                     
+                    // Store rich nutrient data
+                    lastScannedNutrients = {
+                        fat: p.nutriments['fat_100g'] || 0,
+                        carbs: p.nutriments['carbohydrates_100g'] || 0,
+                        sugar: p.nutriments['sugars_100g'] || 0,
+                        fiber: p.nutriments['fiber_100g'] || 0,
+                        sodium: p.nutriments['sodium_100g'] || 0,
+                        source: 'OpenFoodFacts'
+                    };
+                    
                     if (energyKcal) {
+                        // Set ratio lock for auto-calculator
+                        ratioLock = {
+                            cal_per_unit: energyKcal / 100,
+                            pro_per_unit: protein100g / 100
+                        };
+
                         // Check if we are currently in the Meals tab, if so, map to the Meal form
                         if (document.getElementById('mealsTab').style.display !== 'none') {
                             if (currentMealType === 'food') {
@@ -2782,6 +3233,9 @@
                 document.getElementById('pr-5k').innerText = '--';
             }
             document.getElementById('pr-pullups').innerText = prs.pullups ? `${prs.pullups.Value} reps` : '--';
+
+            // Render Micronutrient Averages
+            renderMicroDashboard(items);
 
             const rawBody = document.getElementById('rawTable'); rawBody.innerHTML = '';
             uniqueDays.forEach(d => {
