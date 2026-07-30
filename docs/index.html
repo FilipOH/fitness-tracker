@@ -3005,6 +3005,14 @@
                         const errorData = await offResponse.json().catch(() => ({}));
                         offError = errorData.error || `Service Error: ${offResponse.status}`;
                         if (errorData.debug) console.warn("OFF Debug Info:", errorData.debug);
+
+                        if (offResponse.status === 503) {
+                            resultsDiv.innerHTML = `<div style="text-align:center; padding:20px; color:var(--sub);">
+                                <i class="fas fa-server" style="font-size:1.5em; margin-bottom:10px; opacity:0.5;"></i><br>
+                                Food database is busy (503).<br>
+                                <small>Retrying automatically...</small>
+                            </div>`;
+                        }
                         throw new Error(offError);
                     }
 
