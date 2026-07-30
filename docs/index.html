@@ -289,7 +289,7 @@
                     </div>
 
                     <!-- Row 5: Calories & Protein -->
-                    <div class="grid" style="margin-bottom:0; grid-template-columns: 1fr 1fr;">
+                    <div class="grid" style="margin-bottom:10px; grid-template-columns: 1fr 1fr;">
                         <div class="form-row" style="margin-bottom:0;">
                             <label>Calories</label>
                             <input type="number" id="foodCals" placeholder="Cals" min="0" max="5000">
@@ -298,6 +298,21 @@
                             <label>Protein (g)</label>
                             <input type="number" id="foodPro" placeholder="Prot" min="0" max="500">
                         </div>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Amount (Optional)</label>
+                        <div style="position:relative; display:flex;">
+                            <input type="number" id="foodQty" placeholder="e.g. 100" style="padding:10px; width:100%; border-radius:8px; border:1px solid #444; background:#222; color:white; padding-right: 40px;">
+                            <select id="foodUnit" style="position:absolute; right:1px; top:1px; bottom:1px; width: 38px; background:var(--bg); color:var(--accent); border:none; border-left:1px solid #444; font-size:0.75em; padding:0 2px; border-radius:0 8px 8px 0; -webkit-appearance: none; -moz-appearance: none; appearance: none; text-align: center;">
+                                <option value="g">g</option>
+                                <option value="ml">ml</option>
+                                <option value="tbsp">tbsp</option>
+                                <option value="tsp">tsp</option>
+                                <option value="unit">u</option>
+                            </select>
+                        </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1898,16 +1913,17 @@
             
             const div = document.createElement('div');
             div.className = 'ing-row';
-            div.style = 'display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto; gap: 5px; align-items: center; margin-bottom: 8px;';
+            div.style = 'display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 5px; align-items: center; margin-bottom: 8px;';
             div.innerHTML = `
                 <input type="text" placeholder="Name" value="${name}" style="padding:8px; font-size:0.85em;">
                 <div style="position:relative; display:flex;">
-                    <input type="number" placeholder="Amt" value="${qty}" style="padding:8px; width:100%; font-size:0.85em;">
-                    <select class="ing-unit" style="position:absolute; right:0; top:0; height:100%; background:#333; color:white; border:none; border-left:1px solid #444; font-size:0.7em; padding:0 2px; border-radius:0 4px 4px 0;">
+                    <input type="number" placeholder="Amt" value="${qty}" style="padding:8px; width:100%; font-size:0.85em; padding-right: 32px;">
+                    <select class="ing-unit" style="position:absolute; right:1px; top:1px; bottom:1px; width: 30px; background:var(--bg); color:var(--accent); border:none; border-left:1px solid #444; font-size:0.7em; padding:0 2px; border-radius:0 4px 4px 0; -webkit-appearance: none; -moz-appearance: none; appearance: none; text-align: center;">
                         <option value="g" ${unit === 'g' ? 'selected' : ''}>g</option>
                         <option value="ml" ${unit === 'ml' ? 'selected' : ''}>ml</option>
                         <option value="tbsp" ${unit === 'tbsp' ? 'selected' : ''}>tbsp</option>
                         <option value="tsp" ${unit === 'tsp' ? 'selected' : ''}>tsp</option>
+                        <option value="unit" ${unit === 'unit' ? 'selected' : ''}>u</option>
                     </select>
                 </div>
                 <input type="number" placeholder="Cal" class="ing-cals" value="${cals}" style="padding:8px; font-size:0.85em;">
@@ -2278,7 +2294,15 @@
             if (type === 'FOOD') { 
                 val = document.getElementById('foodCals').value; 
                 pro = document.getElementById('foodPro').value; 
-                note = document.getElementById('foodNote').value; 
+                const foodNote = document.getElementById('foodNote').value;
+                const qty = document.getElementById('foodQty').value;
+                const unit = document.getElementById('foodUnit').value;
+                
+                if (qty && parseFloat(qty) > 0) {
+                    note = `${foodNote} (${qty}${unit})`;
+                } else {
+                    note = foodNote;
+                }
             }
             else if (type === 'GYM') { val = 1; note = document.getElementById('gymNote').value; }
             else if (type === 'WEIGHT') { val = document.getElementById('weightVal').value; }
@@ -2553,8 +2577,10 @@
                             document.getElementById('foodNote').value = name + brand;
                             document.getElementById('foodCals').value = Math.round(energyKcal);
                             document.getElementById('foodPro').value = Math.round(protein100g);
-                            // Switch to FOOD type if on LOG tab
-                            if (document.getElementById('logTab').style.display !== 'none') {
+                            document.getElementById('foodQty').value = "100";
+                            document.getElementById('foodUnit').value = "g";
+                            // Switch to FOOD type if on inputTab
+                            if (document.getElementById('inputTab').classList.contains('active')) {
                                 document.getElementById('entryType').value = 'FOOD';
                                 toggleFields();
                             }
