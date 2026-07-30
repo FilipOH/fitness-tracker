@@ -2135,27 +2135,35 @@
                 const mealCard = document.createElement('div');
                 mealCard.className = 'card meal-card';
                 mealCard.setAttribute('data-name', m.MealName);
-                mealCard.style = 'display:flex; justify-content:space-between; align-items:center; padding:10px; margin-bottom:5px;';
+                mealCard.style = 'display:flex; flex-direction:column; padding:12px; margin-bottom:10px;';
                 
                 const subtitle = m.isQuickFood 
-                    ? `<span style="font-size:0.8em; color:var(--sub);">${m.Calories} cal | ${m.Protein || 0}g pro</span>`
-                    : `<span style="font-size:0.8em; color:var(--sub);">${perPortion} cal | ${proPerPortion}g pro (per portion)</span>`;
+                    ? `<div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85em; color:var(--sub);">
+                         <span>${m.Calories} cal</span>
+                         <span>${m.Protein || 0}g pro</span>
+                         <span>${m.Ingredients?.[0]?.qty || ''}${m.Ingredients?.[0]?.unit || ''}</span>
+                       </div>`
+                    : `<div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85em; color:var(--sub);">
+                         <span>${perPortion} cal</span>
+                         <span>${proPerPortion}g pro</span>
+                         <span>per portion</span>
+                       </div>`;
                 
                 // Add log button for quick foods
                 const logButton = m.isQuickFood 
-                    ? `<button onclick="logQuickFood('${m.MealName.replace(/'/g, "\\'")}', ${m.Calories}, ${m.Protein || 0})" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1.1em;" title="Log Now"><i class="fas fa-plus-circle"></i></button>`
+                    ? `<button onclick="logQuickFood('${m.MealName.replace(/'/g, "\\'")}', ${m.Calories}, ${m.Protein || 0})" style="background:var(--accent); border:none; color:white; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:0.8em;" title="Log Now"><i class="fas fa-plus"></i> Log</button>`
                     : '';
                 
                 mealCard.innerHTML = `
-                    <div style="cursor:pointer; flex-grow:1;" onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')">
-                        <strong style="color:var(--accent);">${m.MealName}</strong><br>
-                        ${subtitle}
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%;">
+                        <strong style="color:var(--accent); font-size:1em; cursor:pointer;" onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')">${m.MealName}</strong>
+                        <div style="display:flex; gap:12px;">
+                            ${logButton}
+                            <button onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:var(--sub); cursor:pointer; padding:0;" title="Edit"><i class="fas fa-edit"></i></button>
+                            <button onclick="deleteMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:#ff4444; cursor:pointer; padding:0;" title="Delete"><i class="fas fa-trash"></i></button>
+                        </div>
                     </div>
-                    <div style="display:flex; gap:10px;">
-                        ${logButton}
-                        <button onclick="editMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:var(--sub); cursor:pointer;" title="Edit"><i class="fas fa-edit"></i></button>
-                        <button onclick="deleteMeal('${m.MealName.replace(/'/g, "\\'")}')" style="background:none; border:none; color:#ff4444; cursor:pointer;" title="Delete"><i class="fas fa-trash"></i></button>
-                    </div>
+                    ${subtitle}
                 `;
                 list.appendChild(mealCard);
             });
@@ -2337,7 +2345,9 @@
                 protein: parseFloat(pro || 0), 
                 note, 
                 time: customTime,
-                date: selectedDate 
+                date: selectedDate,
+                amount: document.getElementById('foodQty') ? parseFloat(document.getElementById('foodQty').value || 0) : null,
+                amountUnit: document.getElementById('foodUnit') ? document.getElementById('foodUnit').value : null
             };
 
             // Optimistically update UI and Cache

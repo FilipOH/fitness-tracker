@@ -198,7 +198,7 @@ async function handleApiRequest(request, env) {
     
     if (!data) return jsonResponse({ error: 'Data is missing' }, 400);
 
-    const { date, time, type, foodName, note, calories, value, protein, exercise, weight, reps } = data;
+    const { date, time, type, foodName, note, calories, value, protein, exercise, weight, reps, amount, amountUnit } = data;
     if (!date) return jsonResponse({ error: 'Date is required' }, 400);
 
     const finalFoodName = foodName || note || '';
@@ -213,9 +213,9 @@ async function handleApiRequest(request, env) {
     try {
       if (type === 'FOOD') {
         await env.DB.prepare(`
-          INSERT INTO food_logs (user_id, date, time, food_name, calories, protein)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).bind(userId, date, finalTime, finalFoodName, Number(finalCalories), Number(protein || 0)).run();
+          INSERT INTO food_logs (user_id, date, time, food_name, calories, protein, amount, amount_unit)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(userId, date, finalTime, finalFoodName, Number(finalCalories), Number(protein || 0), amount || null, amountUnit || null).run();
       } else if (type === 'GYM') {
         await env.DB.prepare(`
           INSERT INTO gym_logs (user_id, date, time)
