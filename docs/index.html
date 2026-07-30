@@ -2973,7 +2973,9 @@
                     });
                     
                     if (!offResponse.ok) {
-                        offError = `Service Error: ${offResponse.status}`;
+                        const errorData = await offResponse.json().catch(() => ({}));
+                        offError = errorData.error || `Service Error: ${offResponse.status}`;
+                        if (errorData.debug) console.warn("OFF Debug Info:", errorData.debug);
                         throw new Error(offError);
                     }
 
