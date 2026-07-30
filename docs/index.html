@@ -2865,10 +2865,12 @@
                     }
                 });
 
-                // 3. Global Search (Open Food Facts)
+                // 3. Global Search (Open Food Facts via Worker Proxy to avoid CORS)
                 let offMatches = [];
                 try {
-                    const offResponse = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`);
+                    const offResponse = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${API_KEY}`, {
+                        headers: { 'x-api-key': API_KEY }
+                    });
                     const offData = await offResponse.json();
                     offMatches = (offData.products || []).filter(p => p.product_name).map(p => ({
                         isOFF: true,

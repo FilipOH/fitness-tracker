@@ -94,6 +94,24 @@ async function handleApiRequest(request, env) {
 
   // ROUTES
   
+  // GET /search (Proxy to Open Food Facts to avoid CORS)
+  if (path === '/search' && method === 'GET') {
+    const query = url.searchParams.get('q');
+    if (!query) return jsonResponse({ products: [] });
+
+    try {
+      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
+      const offRes = await fetch(offUrl, {
+        headers: { 'User-Agent': 'FitnessTrackerApp - Web - 1.0' }
+      });
+      const offData = await offRes.json();
+      return jsonResponse(offData);
+    } catch (e) {
+      console.error('OFF Proxy Error:', e);
+      return jsonResponse({ error: 'Search failed' }, 500);
+    }
+  }
+
   // Health check
   if (path === '/health' || path === '') {
     return jsonResponse({
