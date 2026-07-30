@@ -94,24 +94,6 @@ async function handleApiRequest(request, env) {
 
   // ROUTES
   
-  // GET /search (Proxy to Open Food Facts to avoid CORS)
-  if (path === '/search' && method === 'GET') {
-    const query = url.searchParams.get('q');
-    if (!query) return jsonResponse({ products: [] });
-
-    try {
-      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
-      const offRes = await fetch(offUrl, {
-        headers: { 'User-Agent': 'FitnessTrackerApp - Web - 1.0' }
-      });
-      const offData = await offRes.json();
-      return jsonResponse(offData);
-    } catch (e) {
-      console.error('OFF Proxy Error:', e);
-      return jsonResponse({ error: 'Search failed' }, 500);
-    }
-  }
-
   // Health check
   if (path === '/health' || path === '') {
     return jsonResponse({
@@ -200,6 +182,51 @@ async function handleApiRequest(request, env) {
       path,
       provided: getApiKey()?.substring(0, 3) + '...' 
     }, 401);
+  }
+
+  // GET /search (Proxy to Open Food Facts)
+  if (path === '/search' && method === 'GET') {
+    const query = url.searchParams.get('q');
+    if (!query) return jsonResponse({ products: [] });
+
+    try {
+      // Improved search: 
+      // 1. sort_by=unique_scans_n: Puts popular items at the top (e.g. real apples vs obscure apple pies)
+      // 2. search_simple=1: Basic keyword search
+      // 3. json=1: Required for API response
+      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&sort_by=unique_scans_n`;
+      
+      const offRes = await fetch(offUrl, {
+        headers: { 
+          'User-Agent': 'FitnessTracker - info@fitness-tracker.local - 1.0',
+          'Accept': 'application/json'
+        },
+        cf: {
+          cacheTtl: 3600, // Cache results for 1 hour at the edge
+          cacheEverything: true
+        }
+      });
+      
+      if (!offRes.ok) {
+        return jsonResponse({ error: `OFF API responded with ${offRes.status}` }, offRes.status);
+      }
+      
+      const text = await offRes.text();
+      let offData;
+      try {
+        offData = JSON.parse(text);
+      } catch (parseErr) {
+        return jsonResponse({ error: 'Invalid JSON from OFF', raw: text.substring(0, 100) }, 502);
+      }
+      
+      // If we got no products, try a broader search without sorting if needed? 
+      // For now, sorting by scans is usually best for "simple" items.
+      
+      return jsonResponse(offData);
+    } catch (e) {
+      console.error('OFF Proxy Error:', e);
+      return jsonResponse({ error: 'Search failed', details: e.message }, 500);
+    }
   }
 
   const userId = 1;

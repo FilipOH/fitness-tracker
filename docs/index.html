@@ -2035,25 +2035,45 @@
             if (!item || !item.Nutrients) return;
             
             const n = typeof item.Nutrients === 'string' ? JSON.parse(item.Nutrients) : item.Nutrients;
-            const content = `
-                <div style="text-align:left;">
-                    <p><b>Fat:</b> ${n.fat || 0}g</p>
-                    <p><b>Carbs:</b> ${n.carbs || 0}g</p>
-                    <p><b>Sugar:</b> ${n.sugar || 0}g</p>
-                    <p><b>Fiber:</b> ${n.fiber || 0}g</p>
-                    <p><b>Sodium:</b> ${n.sodium || 0}mg</p>
-                    <p style="font-size:0.8em; color:var(--sub); margin-top:10px;">Source: ${n.source || 'Unknown'}</p>
+            
+            // Build content dynamically from RDI_DATA to ensure we show all 13
+            let contentHtml = '<div style="text-align:left; max-height: 350px; overflow-y: auto; padding-right: 5px;">';
+            
+            // Macro section first
+            contentHtml += `
+                <div style="margin-bottom:10px; border-bottom:1px solid #444; padding-bottom:5px;">
+                    <p style="margin:4px 0;"><b>Fat:</b> ${(n.fat || 0).toFixed(1)}g</p>
+                    <p style="margin:4px 0;"><b>Carbs:</b> ${(n.carbs || 0).toFixed(1)}g</p>
+                    <p style="margin:4px 0;"><b>Fiber:</b> ${(n.fiber || 0).toFixed(1)}g</p>
+                    <p style="margin:4px 0;"><b>Sugar:</b> ${(n.sugar || 0).toFixed(1)}g</p>
+                </div>
+            `;
+
+            // Micro section
+            const micros = [
+                'vitamin-a', 'vitamin-c', 'vitamin-d', 'vitamin-e', 'vitamin-k',
+                'calcium', 'iron', 'magnesium', 'potassium', 'zinc', 'sodium'
+            ];
+
+            micros.forEach(key => {
+                const rdi = RDI_DATA[key];
+                if (!rdi) return;
+                const val = n[key];
+                const displayVal = (val !== undefined && val !== null) ? val.toFixed(key === 'sodium' ? 0 : 2) : '0';
+                contentHtml += `<p style="margin:4px 0; font-size:0.9em;"><b>${rdi.label}:</b> ${displayVal}${rdi.unit}</p>`;
+            });
+
+            contentHtml += `
+                    <p style="font-size:0.75em; color:var(--sub); margin-top:10px; border-top:1px solid #333; padding-top:5px;">Source: ${n.source || 'Open Food Facts'}</p>
                 </div>
             `;
             
-            // Reusing the general message/modal pattern if exists, otherwise alert for now
-            // But let's create a quick clean modal overlay
             const modal = document.createElement('div');
             modal.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9000; display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;";
             modal.innerHTML = `
-                <div class="card" style="width:100%; max-width:300px; padding:20px; position:relative;">
+                <div class="card" style="width:100%; max-width:320px; padding:20px; position:relative; max-height: 80vh; display: flex; flex-direction: column;">
                     <h3 style="color:var(--accent); margin-top:0;">Nutrient Details</h3>
-                    ${content}
+                    ${contentHtml}
                     <button class="submit" style="margin-top:15px;" onclick="this.parentElement.parentElement.remove()">Close</button>
                 </div>
             `;
@@ -2867,10 +2887,17 @@
 
                 // 3. Global Search (Open Food Facts via Worker Proxy to avoid CORS)
                 let offMatches = [];
+                let offError = null;
                 try {
                     const offResponse = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${API_KEY}`, {
                         headers: { 'x-api-key': API_KEY }
                     });
+                    
+                    if (!offResponse.ok) {
+                        offError = `Service Error: ${offResponse.status}`;
+                        throw new Error(offError);
+                    }
+
                     const offData = await offResponse.json();
                     offMatches = (offData.products || []).filter(p => p.product_name).map(p => ({
                         isOFF: true,
@@ -2879,22 +2906,28 @@
                         cals: Math.round(p.nutriments['energy-kcal_100g'] || 0),
                         pro: p.nutriments.proteins_100g || 0,
                         nutrients: {
-                            'fiber': p.nutriments.fiber_100g,
-                            'sugar': p.nutriments.sugars_100g,
-                            'vitamin-a': p.nutriments['vitamin-a_100g'],
-                            'vitamin-c': p.nutriments['vitamin-c_100g'],
-                            'vitamin-d': p.nutriments['vitamin-d_100g'],
-                            'vitamin-e': p.nutriments['vitamin-e_100g'],
-                            'vitamin-k': p.nutriments['vitamin-k_100g'],
-                            'calcium': p.nutriments.calcium_100g,
-                            'iron': p.nutriments.iron_100g,
-                            'magnesium': p.nutriments.magnesium_100g,
-                            'potassium': p.nutriments.potassium_100g,
-                            'sodium': p.nutriments.sodium_100g,
-                            'zinc': p.nutriments.zinc_100g
+                            'fat': p.nutriments.fat_100g || 0,
+                            'carbs': p.nutriments.carbohydrates_100g || 0,
+                            'fiber': p.nutriments.fiber_100g || 0,
+                            'sugar': p.nutriments.sugars_100g || 0,
+                            'vitamin-a': (p.nutriments['vitamin-a_100g'] || 0) * 1000000, 
+                            'vitamin-c': (p.nutriments['vitamin-c_100g'] || 0) * 1000,   
+                            'vitamin-d': (p.nutriments['vitamin-d_100g'] || 0) * 1000000, 
+                            'vitamin-e': (p.nutriments['vitamin-e_100g'] || 0) * 1000,   
+                            'vitamin-k': (p.nutriments['vitamin-k_100g'] || 0) * 1000000, 
+                            'calcium': (p.nutriments.calcium_100g || 0) * 1000,
+                            'iron': (p.nutriments.iron_100g || 0) * 1000,
+                            'magnesium': (p.nutriments.magnesium_100g || 0) * 1000,
+                            'potassium': (p.nutriments.potassium_100g || 0) * 1000,
+                            'sodium': (p.nutriments.sodium_100g || 0) * 1000,             
+                            'zinc': (p.nutriments.zinc_100g || 0) * 1000,
+                            'source': 'Open Food Facts'
                         }
                     }));
-                } catch (e) { console.warn("OFF Search failed", e); }
+                } catch (e) { 
+                    console.warn("OFF Search failed", e); 
+                    offError = e.message;
+                }
 
                 resultsContainer.innerHTML = '';
                 
@@ -2911,6 +2944,14 @@
                 if (offMatches.length > 0) {
                     resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.7em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">Global Database</h4>';
                     offMatches.forEach(m => renderSearchItem(resultsContainer, `${m.name} ${m.brand ? '('+m.brand+')' : ''}`, m.cals, m.pro, 'OFF (per 100g/ml)', m));
+                } else if (offError) {
+                    resultsContainer.innerHTML += `
+                        <div style="background:rgba(255,100,100,0.1); border:1px solid rgba(255,0,0,0.2); border-radius:8px; padding:10px; margin-top:20px; text-align:center;">
+                            <i class="fas fa-exclamation-triangle" style="color:var(--red); margin-bottom:5px;"></i>
+                            <p style="font-size:0.8em; color:var(--sub); margin:0;">Global search is temporarily down.</p>
+                            <small style="font-size:0.6em; color:#666;">(${offError})</small>
+                        </div>
+                    `;
                 }
 
                 if (resultsContainer.innerHTML === '') {
