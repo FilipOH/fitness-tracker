@@ -2862,28 +2862,55 @@
             const resultsContainer = document.getElementById('searchResults');
             resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Searching...</p>';
 
+            function getScore(name, queryStr) {
+                if (!name) return 0;
+                const n = name.toLowerCase();
+                const q = queryStr.toLowerCase();
+                const qWords = q.split(/\s+/).filter(x => x);
+                
+                if (n === q) return 1000;
+                if (n.startsWith(q)) return 500 - n.length;
+                if (n.includes(q)) return 200 - n.length;
+                
+                // Content match regardless of order
+                if (qWords.every(w => n.includes(w))) return 100 - n.length;
+                return 0;
+            }
+
             try {
+                const qLow = query.toLowerCase();
+                const qWords = qLow.split(/\s+/).filter(x => x);
+
                 // 1. Local Search (Saved Meals & Foods)
-                const localMatches = meals.filter(m => m.MealName.toLowerCase().includes(query.toLowerCase())).slice(0, 10);
+                const localMatches = meals
+                    .filter(m => {
+                        const name = m.MealName.toLowerCase();
+                        return qWords.every(w => name.includes(w));
+                    })
+                    .sort((a,b) => getScore(b.MealName, query) - getScore(a.MealName, query))
+                    .slice(0, 10);
                 
                 // 2. History Search (Past logs)
                 const historyMatches = [];
                 const seen = new Set();
                 allRawItems.forEach(item => {
-                    if (item.Type === 'FOOD' && item.Note && item.Note.toLowerCase().includes(query.toLowerCase())) {
+                    if (item.Type === 'FOOD' && item.Note) {
                         const baseNote = item.Note.split(' (')[0];
-                        if (!seen.has(baseNote)) {
+                        const noteLow = baseNote.toLowerCase();
+                        if (qWords.every(w => noteLow.includes(w)) && !seen.has(baseNote)) {
                             historyMatches.push({
                                 isHistory: true,
                                 name: baseNote,
                                 cals: item.Value,
                                 pro: item.Protein || 0,
-                                nutrients: item.Nutrients
+                                nutrients: item.Nutrients,
+                                score: getScore(baseNote, query)
                             });
                             seen.add(baseNote);
                         }
                     }
                 });
+                historyMatches.sort((a,b) => b.score - a.score);
 
                 // 3. Global Search (Open Food Facts via Worker Proxy to avoid CORS)
                 let offMatches = [];
@@ -2892,38 +2919,43 @@
                     const offResponse = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${API_KEY}`, {
                         headers: { 'x-api-key': API_KEY }
                     });
-                    
+                     // ...Existing error handling...
                     if (!offResponse.ok) {
                         offError = `Service Error: ${offResponse.status}`;
                         throw new Error(offError);
                     }
 
                     const offData = await offResponse.json();
-                    offMatches = (offData.products || []).filter(p => p.product_name).map(p => ({
-                        isOFF: true,
-                        name: p.product_name,
-                        brand: p.brands,
-                        cals: Math.round(p.nutriments['energy-kcal_100g'] || 0),
-                        pro: p.nutriments.proteins_100g || 0,
-                        nutrients: {
-                            'fat': p.nutriments.fat_100g || 0,
-                            'carbs': p.nutriments.carbohydrates_100g || 0,
-                            'fiber': p.nutriments.fiber_100g || 0,
-                            'sugar': p.nutriments.sugars_100g || 0,
-                            'vitamin-a': (p.nutriments['vitamin-a_100g'] || 0) * 1000000, 
-                            'vitamin-c': (p.nutriments['vitamin-c_100g'] || 0) * 1000,   
-                            'vitamin-d': (p.nutriments['vitamin-d_100g'] || 0) * 1000000, 
-                            'vitamin-e': (p.nutriments['vitamin-e_100g'] || 0) * 1000,   
-                            'vitamin-k': (p.nutriments['vitamin-k_100g'] || 0) * 1000000, 
-                            'calcium': (p.nutriments.calcium_100g || 0) * 1000,
-                            'iron': (p.nutriments.iron_100g || 0) * 1000,
-                            'magnesium': (p.nutriments.magnesium_100g || 0) * 1000,
-                            'potassium': (p.nutriments.potassium_100g || 0) * 1000,
-                            'sodium': (p.nutriments.sodium_100g || 0) * 1000,             
-                            'zinc': (p.nutriments.zinc_100g || 0) * 1000,
-                            'source': 'Open Food Facts'
-                        }
-                    }));
+                    offMatches = (offData.products || []).filter(p => p.product_name).map(p => {
+                        const n = p.nutriments || {};
+                        return {
+                            isOFF: true,
+                            name: p.product_name,
+                            brand: p.brands,
+                            cals: Math.round(n['energy-kcal_100g'] || 0),
+                            pro: n.proteins_100g || 0,
+                            score: getScore(p.product_name, query),
+                            nutrients: {
+                                'fat': n.fat_100g || 0,
+                                'carbs': n.carbohydrates_100g || 0,
+                                'fiber': n.fiber_100g || 0,
+                                'sugar': n.sugars_100g || 0,
+                                'vitamin-a': (n['vitamin-a_100g'] || 0) * 1000000, 
+                                'vitamin-c': (n['vitamin-c_100g'] || 0) * 1000,   
+                                'vitamin-d': (n['vitamin-d_100g'] || 0) * 1000000, 
+                                'vitamin-e': (n['vitamin-e_100g'] || 0) * 1000,   
+                                'vitamin-k': (n['vitamin-k_100g'] || 0) * 1000000, 
+                                'calcium': (n.calcium_100g || 0) * 1000,
+                                'iron': (n.iron_100g || 0) * 1000,
+                                'magnesium': (n.magnesium_100g || 0) * 1000,
+                                'potassium': (n.potassium_100g || 0) * 1000,
+                                'sodium': (n.sodium_100g || 0) * 1000,             
+                                'zinc': (n.zinc_100g || 0) * 1000,
+                                'source': 'Open Food Facts'
+                            }
+                        };
+                    });
+                    offMatches.sort((a,b) => b.score - a.score);
                 } catch (e) { 
                     console.warn("OFF Search failed", e); 
                     offError = e.message;
@@ -2957,6 +2989,12 @@
                 if (resultsContainer.innerHTML === '') {
                     resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">No matches found.</p>';
                 }
+
+            } catch (err) {
+                console.error("Search error:", err);
+                resultsContainer.innerHTML = '<p style="color: var(--red); text-align: center; margin-top: 50px;">Error performing search.</p>';
+            }
+        }
 
             } catch (err) {
                 console.error("Search error:", err);
