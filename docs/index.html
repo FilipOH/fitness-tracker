@@ -2114,7 +2114,8 @@
             let scaleLabel = "";
             
             // For items from external DBs, base is 100g/ml. For meals/quick foods, it depends on portions.
-            const isExternal = (n.source === 'OFF' || n.source === 'USDA' || n.source === 'CoFID' || n.source === 'Open Food Facts' || n.source === 'USDA Foundation Data' || n.source === 'UK CoFID');
+            const s = n.source || '';
+            const isExternal = (s.includes('OFF') || s.includes('USDA') || s.includes('CoFID') || s.includes('Open Food Facts') || s.includes('Foundation') || s.includes('UK'));
             const base = isExternal ? 100 : (item.Portions || 1);
 
             if (manualQty !== null) {
@@ -2535,7 +2536,9 @@
                         if (!lastScannedNutrients) return null;
                         if (!ratioLock) return lastScannedNutrients;
                         // Use ratioLock or calculate from baseQty if available
-                        const baseQty = (lastScannedNutrients.source?.includes('OFF') || lastScannedNutrients.source?.includes('USDA') || lastScannedNutrients.source?.includes('UK') ? 100 : 1);
+                        const src = lastScannedNutrients.source || '';
+                        const isExt = src.includes('OFF') || src.includes('USDA') || src.includes('CoFID') || src.includes('UK') || src.includes('Open Food Facts') || src.includes('Foundation');
+                        const baseQty = isExt ? 100 : 1;
                         const scale = qtyVal / baseQty;
                         const scaled = { ...lastScannedNutrients };
                         for (const key in lastScannedNutrients) {
@@ -2934,7 +2937,9 @@
                     if (!ratioLock || !ratioLock.micros) return lastScannedNutrients;
                     
                     const qty = parseFloat(document.getElementById('foodQty').value) || 0;
-                    const baseQty = (ratioLock.cal_per_unit > 0 || ratioLock.pro_per_unit > 0) ? (lastScannedNutrients.source?.includes('OFF') || lastScannedNutrients.source?.includes('USDA') || lastScannedNutrients.source?.includes('UK') ? 100 : 1) : 1;
+                    const src = lastScannedNutrients.source || '';
+                    const isExt = src.includes('OFF') || src.includes('USDA') || src.includes('CoFID') || src.includes('UK') || src.includes('Open Food Facts') || src.includes('Foundation');
+                    const baseQty = (ratioLock.cal_per_unit > 0 || ratioLock.pro_per_unit > 0) ? (isExt ? 100 : 1) : 1;
                     const scale = qty / baseQty;
                     
                     const scaled = { ...lastScannedNutrients };
@@ -3286,7 +3291,8 @@
                 }
                 
                 // Set up ratioLock for scaling - store all available nutrient ratios
-                const baseQty = (item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID') ? 100 : 1;
+                const isExt = item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID';
+                const baseQty = isExt ? 100 : 1;
                 ratioLock = {
                     cal_per_unit: cals / baseQty,
                     pro_per_unit: pro / baseQty,
@@ -3319,7 +3325,8 @@
                         row.dataset.nutrients = JSON.stringify(nutrients);
                         
                         // Set up ratio lock for this specific row
-                        const baseQty = (item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID') ? 100 : 1;
+                        const isExt = item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID';
+                        const baseQty = isExt ? 100 : 1;
                         row.dataset.baseQty = baseQty;
                         row.dataset.baseNutrients = JSON.stringify({
                             calories: cals,
@@ -3344,7 +3351,8 @@
                    nutrientBtn.style.display = nutrients ? 'flex' : 'none';
                 }
                 
-                const baseQty = (item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID') ? 100 : 1;
+                const isExtQuick = item.source === 'OFF' || item.source === 'USDA' || item.source === 'CoFID';
+                const baseQty = isExtQuick ? 100 : 1;
                 document.getElementById('m-quickqty').value = baseQty;
                 document.getElementById('m-quickunit').value = baseQty === 100 ? 'g' : 'portion';
                 
@@ -3425,17 +3433,17 @@
                         carbs: p.nutriments['carbohydrates_100g'] || 0,
                         sugar: p.nutriments['sugars_100g'] || 0,
                         fiber: p.nutriments['fiber_100g'] || 0,
-                        sodium: p.nutriments['sodium_100g'] || 0,
-                        potassium: p.nutriments['potassium_100g'] || 0,
-                        calcium: p.nutriments['calcium_100g'] || 0,
-                        magnesium: p.nutriments['magnesium_100g'] || 0,
-                        iron: p.nutriments['iron_100g'] || 0,
-                        zinc: p.nutriments['zinc_100g'] || 0,
-                        'vitamin-a': p.nutriments['vitamin-a_100g'] || 0,
-                        'vitamin-c': p.nutriments['vitamin-c_100g'] || 0,
-                        'vitamin-d': p.nutriments['vitamin-d_100g'] || 0,
-                        'vitamin-e': p.nutriments['vitamin-e_100g'] || 0,
-                        'vitamin-k': p.nutriments['vitamin-k_100g'] || 0,
+                        sodium: (p.nutriments['sodium_100g'] || 0) * 1000,
+                        potassium: (p.nutriments['potassium_100g'] || 0) * 1000,
+                        calcium: (p.nutriments['calcium_100g'] || 0) * 1000,
+                        magnesium: (p.nutriments['magnesium_100g'] || 0) * 1000,
+                        iron: (p.nutriments['iron_100g'] || 0) * 1000,
+                        zinc: (p.nutriments['zinc_100g'] || 0) * 1000,
+                        'vitamin-a': (p.nutriments['vitamin-a_100g'] || 0) * 1000000,
+                        'vitamin-c': (p.nutriments['vitamin-c_100g'] || 0) * 1000,
+                        'vitamin-d': (p.nutriments['vitamin-d_100g'] || 0) * 1000000,
+                        'vitamin-e': (p.nutriments['vitamin-e_100g'] || 0) * 1000,
+                        'vitamin-k': (p.nutriments['vitamin-k_100g'] || 0) * 1000000,
                         source: 'OpenFoodFacts'
                     };
                     
