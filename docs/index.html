@@ -2120,7 +2120,8 @@
 
             if (manualQty !== null) {
                 scale = manualQty / base;
-                scaleLabel = ` (${manualQty}${isExternal ? 'g' : ' portions'})`;
+                const unit = isExternal ? 'g' : (manualQty === 1 ? ' portion' : ' portions');
+                scaleLabel = ` (${manualQty}${unit})`;
             } else if (item.amount) {
                 scale = item.amount / base;
                 scaleLabel = ` (${item.amount}${item.amountUnit || ''})`;
@@ -2695,7 +2696,7 @@
                     : m.Ingredients?.some(ing => ing.nutrients);
 
                 const infoBtn = hasNutrients ? `
-                    <button onclick="showNutrientDetails(${JSON.stringify(m).replace(/"/g, '&quot;')})" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1em; padding:4px; margin-left: 5px; vertical-align: middle;">
+                    <button onclick="showNutrientDetails(${JSON.stringify(m).replace(/"/g, '&quot;')}, null, ${m.isQuickFood ? 'null' : '1'})" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1em; padding:4px; margin-left: 5px; vertical-align: middle;">
                         <i class="fas fa-info-circle"></i>
                     </button>` : '';
 
@@ -3234,7 +3235,9 @@
             
             const hasNutrients = !!p.nutrients;
             const displayName = p.brand && p.brand !== 'Generic (USDA)' && p.brand !== 'Generic (UK CoFID)' ? `${p.name} (${p.brand})` : p.name;
-            
+            const s = p.source || '';
+            const isExt = s.includes('OFF') || s.includes('USDA') || s.includes('CoFID') || s.includes('UK') || s.includes('Open Food Facts') || s.includes('Foundation');
+
             div.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="handleMLSelect(${JSON.stringify(p).replace(/"/g, '&quot;')}, ${rank}, '${originalQuery.replace(/'/g, "\\'")}')">
                     <div style="flex: 1; padding-right: 15px;">
@@ -3243,7 +3246,7 @@
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         ${hasNutrients ? `
-                        <button class="info-btn" onclick="event.stopPropagation(); showNutrientDetails(${JSON.stringify(p).replace(/"/g, '&quot;')})" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:5px; font-size:1.1em;">
+                        <button class="info-btn" onclick="event.stopPropagation(); showNutrientDetails(${JSON.stringify(p).replace(/"/g, '&quot;')}, null, ${isExt ? '100' : 'null'})" style="background:none; border:none; color:var(--accent); cursor:pointer; padding:5px; font-size:1.1em;">
                             <i class="fas fa-info-circle"></i>
                         </button>` : ''}
                         <div style="text-align: right; min-width: 60px;">
@@ -3444,7 +3447,7 @@
                         'vitamin-d': (p.nutriments['vitamin-d_100g'] || 0) * 1000000,
                         'vitamin-e': (p.nutriments['vitamin-e_100g'] || 0) * 1000,
                         'vitamin-k': (p.nutriments['vitamin-k_100g'] || 0) * 1000000,
-                        source: 'OpenFoodFacts'
+                        source: 'Open Food Facts'
                     };
                     
                     if (energyKcal) {
