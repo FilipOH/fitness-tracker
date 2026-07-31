@@ -2873,10 +2873,12 @@
         let activeSearchContext = null;
         let activeSearchElement = null;
         let searchDebounce = null;
+        let lastSearchQuery = '';
 
         function openSearch(context, element = null) {
             activeSearchContext = context;
             activeSearchElement = element;
+            lastSearchQuery = '';
             document.getElementById('searchOverlay').style.display = 'flex';
             document.getElementById('searchInput').value = '';
             document.getElementById('searchResults').innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Type to search your history and Open Food Facts...</p>';
@@ -2890,6 +2892,8 @@
         document.getElementById('searchInput').addEventListener('input', (e) => {
             clearTimeout(searchDebounce);
             const query = e.target.value.trim();
+            lastSearchQuery = query;
+
             if (query.length < 2) {
                 document.getElementById('searchResults').innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Type at least 2 characters...</p>';
                 return;
@@ -2898,12 +2902,18 @@
         });
 
         async function performSearch(query) {
+            // Guard against stale requests overwriting newer ones
+            if (query !== lastSearchQuery) return;
+
             const resultsContainer = document.getElementById('searchResults');
             resultsContainer.innerHTML = '<p style="color: var(--sub); text-align: center; margin-top: 50px;">Searching...</p>';
 
             try {
-                // All search logic (History, Saved Meals, API, Scoring) now handled by Backend for "ML" prioritization
                 const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&key=${localStorage.getItem('apiKey') || API_KEY}`);
+                
+                // Final check before rendering
+                if (query !== lastSearchQuery) return;
+                
                 const data = await response.json();
                 
                 if (!data.products || data.products.length === 0) {
