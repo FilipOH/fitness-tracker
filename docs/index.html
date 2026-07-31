@@ -2135,8 +2135,14 @@
                 <div style="margin-bottom:10px; border-bottom:1px solid #444; padding-bottom:5px;">
                     <p style="margin:4px 0;"><b>Fat:</b> ${((n.fat || 0) * scale).toFixed(1)}g</p>
                     <p style="margin:4px 0;"><b>Carbs:</b> ${((n.carbs || 0) * scale).toFixed(1)}g</p>
-                    <p style="margin:4px 0;"><b>Fiber:</b> ${((n.fiber || 0) * scale).toFixed(1)}g</p>
-                    <p style="margin:4px 0;"><b>Sugar:</b> ${((n.sugar || 0) * scale).toFixed(1)}g</p>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <p style="margin:4px 0;"><b>Fiber:</b> ${((n.fiber || 0) * scale).toFixed(1)}g</p>
+                        <span style="color:var(--sub); font-size:0.85em; opacity: 0.8;">${Math.round(((n.fiber || 0) * scale / RDI_DATA['fiber'].goal) * 100)}%</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <p style="margin:4px 0;"><b>Sugar:</b> ${((n.sugar || 0) * scale).toFixed(1)}g</p>
+                        <span style="color:var(--sub); font-size:0.85em; opacity: 0.8;">${Math.round(((n.sugar || 0) * scale / RDI_DATA['sugar'].goal) * 100)}%</span>
+                    </div>
                 </div>
             `;
 
@@ -2149,9 +2155,16 @@
             micros.forEach(key => {
                 const rdi = RDI_DATA[key];
                 if (!rdi) return;
-                const val = n[key];
-                const displayVal = (val !== undefined && val !== null) ? (val * scale).toFixed(key === 'sodium' ? 0 : 2) : '0';
-                contentHtml += `<p style="margin:4px 0; font-size:0.9em;"><b>${rdi.label}:</b> ${displayVal}${rdi.unit}</p>`;
+                const val = (n[key] || 0) * scale;
+                const displayVal = val.toFixed(key === 'sodium' ? 0 : 2);
+                const pct = Math.round((val / rdi.goal) * 100);
+                
+                contentHtml += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin:4px 0; font-size:0.9em;">
+                        <span><b>${rdi.label}:</b> ${displayVal}${rdi.unit}</span>
+                        <span style="color:var(--sub); font-size:0.85em; opacity: 0.8;">${pct}%</span>
+                    </div>
+                `;
             });
 
             contentHtml += `
