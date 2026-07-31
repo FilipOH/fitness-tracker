@@ -364,9 +364,8 @@
                             </select>
                         </div>
                     </div>
-                    </div>
-                </div>
-            </div>
+                </div> <!-- End manualFoodFields -->
+            </div> <!-- End foodForm -->
 
             <!-- Workout Form -->
             <div id="gymForm" style="display:none;">
@@ -539,6 +538,13 @@
                 </div>
                 <div class="form-row"><label>Calories</label><input type="number" id="m-quickcals"></div>
                 <div class="form-row"><label>Protein (g)</label><input type="number" id="m-quickpro"></div>
+                
+                <div id="liveQuickSummary" style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin: 10px 0; border: 1px solid #444; display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.75em; color: var(--sub); text-transform: uppercase; letter-spacing: 0.5px;">Portion Estimate</span>
+                        <span id="quickTotalText" style="font-weight: bold; color: var(--accent); font-size: 0.9em;">0 cals | 0.0g pro</span>
+                    </div>
+                </div>
             </div>
             
             <div style="display:flex; gap:10px; margin-top:15px;">
@@ -2237,20 +2243,23 @@
                 if (!pair.qty || pair.qty.dataset.listener) return;
 
                 pair.qty.addEventListener('input', () => {
-                    if (!ratioLock) return;
                     const qty = parseFloat(pair.qty.value) || 0;
-                    isAutoCalculating = true;
-                    if (pair.cal) pair.cal.value = Math.round(qty * ratioLock.cal_per_unit);
-                    if (pair.pro) pair.pro.value = parseFloat(qty * ratioLock.pro_per_unit).toFixed(1);
-                    
-                    // Scale all other macro/micro nutrients
-                    if (lastScannedNutrients && ratioLock.micros) {
-                        for (const key in ratioLock.micros) {
-                            lastScannedNutrients[key] = qty * ratioLock.micros[key];
+                    if (ratioLock) {
+                        isAutoCalculating = true;
+                        if (pair.cal) pair.cal.value = Math.round(qty * ratioLock.cal_per_unit);
+                        if (pair.pro) pair.pro.value = parseFloat(qty * ratioLock.pro_per_unit).toFixed(1);
+                        isAutoCalculating = false;
+                    }
+                    if (pair.qty.id === 'm-quickqty') {
+                        const qs = document.getElementById('liveQuickSummary');
+                        const qt = document.getElementById('quickTotalText');
+                        if (qs && qt) {
+                            const c = document.getElementById('m-quickcals').value || 0;
+                            const p = document.getElementById('m-quickpro').value || 0;
+                            qt.innerText = `${c} cals | ${p}g pro`;
+                            qs.style.display = (c > 0 || p > 0) ? 'block' : 'none';
                         }
                     }
-                    
-                    isAutoCalculating = false;
                 });
 
                 // If user manually edits Cals/Pro, break the ratio lock
@@ -2515,13 +2524,27 @@
                 portions = 1;
                 
                 // For quick food exactly one ingredient
+                const qtyVal = parseFloat(quickQty) || 1;
                 ings = [{
                     desc: name,
-                    qty: parseFloat(quickQty),
+                    qty: qtyVal,
                     unit: quickUnit,
                     cals: totalCals,
                     pro: totalPro,
-                    nutrients: lastScannedNutrients // Use the nutrients from the scan if available
+                    nutrients: (() => {
+                        if (!lastScannedNutrients) return null;
+                        if (!ratioLock) return lastScannedNutrients;
+                        // Use ratioLock or calculate from baseQty if available
+                        const baseQty = (lastScannedNutrients.source?.includes('OFF') || lastScannedNutrients.source?.includes('USDA') || lastScannedNutrients.source?.includes('UK') ? 100 : 1);
+                        const scale = qtyVal / baseQty;
+                        const scaled = { ...lastScannedNutrients };
+                        for (const key in lastScannedNutrients) {
+                            if (typeof lastScannedNutrients[key] === 'number') {
+                                scaled[key] = lastScannedNutrients[key] * scale;
+                            }
+                        }
+                        return scaled;
+                    })()
                 }];
             } else {
                 // Multi-ingredient meal
@@ -2906,7 +2929,22 @@
                 date: selectedDate,
                 amount: document.getElementById('foodQty') ? parseFloat(document.getElementById('foodQty').value || 0) : null,
                 amountUnit: document.getElementById('foodUnit') ? document.getElementById('foodUnit').value : null,
-                nutrients: lastScannedNutrients
+                nutrients: (() => {
+                    if (!lastScannedNutrients) return null;
+                    if (!ratioLock || !ratioLock.micros) return lastScannedNutrients;
+                    
+                    const qty = parseFloat(document.getElementById('foodQty').value) || 0;
+                    const baseQty = (ratioLock.cal_per_unit > 0 || ratioLock.pro_per_unit > 0) ? (lastScannedNutrients.source?.includes('OFF') || lastScannedNutrients.source?.includes('USDA') || lastScannedNutrients.source?.includes('UK') ? 100 : 1) : 1;
+                    const scale = qty / baseQty;
+                    
+                    const scaled = { ...lastScannedNutrients };
+                    for (const key in lastScannedNutrients) {
+                        if (typeof lastScannedNutrients[key] === 'number') {
+                            scaled[key] = lastScannedNutrients[key] * scale;
+                        }
+                    }
+                    return scaled;
+                })()
             };
 
             // Optimistically update UI and Cache
@@ -3062,7 +3100,8 @@
                 Type: payload.type,
                 Value: payload.value,
                 Protein: payload.protein,
-                Note: payload.note
+                Note: payload.note,
+                Nutrients: payload.nutrients || null
             };
             
             // Update in-memory
@@ -3156,7 +3195,9 @@
                     history.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
 
-                if (meals.length > 0) {
+                // Hide Saved Meals section in search results when logging from Log tab to reduce clutter, 
+                // since they have a dedicated toggle/dropdown there already.
+                if (meals.length > 0 && activeSearchContext !== 'log') {
                     resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🍱 Your Saved Meals</h4>';
                     meals.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
@@ -3490,7 +3531,8 @@
                 const res = await fetch(`${API_BASE}/data?key=${API_KEY}`);
                 if (!res.ok) throw new Error('Failed to load data');
                 const data = await res.json();
-                const items = data.items.filter(i => i.PK !== 'CONFIG');
+                // Filter out non-dated entries if any (like MEAL# items leaking into the log view)
+                const items = data.items.filter(i => /^\d{4}-\d{2}-\d{2}$/.test(i.PK));
                 allRawItems = items; // Store for logs view
                 const baseline = data.baseline;
                 
@@ -3511,7 +3553,8 @@
         function renderDashboardData(items, baseline) {
             const ukDate = getUKDateTime();
             const today = ukDate.date;
-            const uniqueDays = [...new Set(items.map(i => i.PK))].filter(d => d !== 'CONFIG').sort().reverse();
+            // Ensure we only process date-based keys for the dashboard rollup
+            const uniqueDays = [...new Set(items.map(i => i.PK))].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
             const dayRollup = {};
             uniqueDays.forEach(d => {
                 let dIn = 0, dOut = baseline, dPro = 0, dW = "--", dGym = 0, dSleep = 0;
