@@ -3385,6 +3385,16 @@
                         sugar: p.nutriments['sugars_100g'] || 0,
                         fiber: p.nutriments['fiber_100g'] || 0,
                         sodium: p.nutriments['sodium_100g'] || 0,
+                        potassium: p.nutriments['potassium_100g'] || 0,
+                        calcium: p.nutriments['calcium_100g'] || 0,
+                        magnesium: p.nutriments['magnesium_100g'] || 0,
+                        iron: p.nutriments['iron_100g'] || 0,
+                        zinc: p.nutriments['zinc_100g'] || 0,
+                        'vitamin-a': p.nutriments['vitamin-a_100g'] || 0,
+                        'vitamin-c': p.nutriments['vitamin-c_100g'] || 0,
+                        'vitamin-d': p.nutriments['vitamin-d_100g'] || 0,
+                        'vitamin-e': p.nutriments['vitamin-e_100g'] || 0,
+                        'vitamin-k': p.nutriments['vitamin-k_100g'] || 0,
                         source: 'OpenFoodFacts'
                     };
                     
@@ -3393,14 +3403,15 @@
                         ratioLock = {
                             cal_per_unit: energyKcal / 100,
                             pro_per_unit: protein100g / 100,
-                            micros: {
-                                fat: (p.nutriments['fat_100g'] || 0) / 100,
-                                carbs: (p.nutriments['carbohydrates_100g'] || 0) / 100,
-                                sugar: (p.nutriments['sugars_100g'] || 0) / 100,
-                                fiber: (p.nutriments['fiber_100g'] || 0) / 100,
-                                sodium: (p.nutriments['sodium_100g'] || 0) / 100
-                            }
+                            micros: {}
                         };
+                        
+                        // Populate all micros into ratioLock
+                        for (const key in lastScannedNutrients) {
+                            if (typeof lastScannedNutrients[key] === 'number') {
+                                ratioLock.micros[key] = lastScannedNutrients[key] / 100;
+                            }
+                        }
 
                         // Check if we are currently in the Meals tab, if so, map to the Meal form
                         if (document.getElementById('mealsTab').classList.contains('active') || document.getElementById('mealsTab').style.display !== 'none') {
