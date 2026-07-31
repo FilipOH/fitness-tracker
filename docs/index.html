@@ -161,7 +161,7 @@
             z-index: 6000;
             display: none;
             flex-direction: column;
-            padding: 20px;
+            padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 20px;
             box-sizing: border-box;
         }
         #searchResults {
@@ -171,6 +171,9 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+        }
+        #searchInput {
+            margin-top: 6px;
         }
         .search-item {
             background: #222;
@@ -3214,10 +3217,10 @@
                     history.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
 
-                // Hide Saved Meals section in search results when logging from Log tab to reduce clutter, 
-                // since they have a dedicated toggle/dropdown there already.
-                if (meals.length > 0 && activeSearchContext !== 'log') {
-                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🍱 Your Saved Meals</h4>';
+                // Saved Meals/Quick Foods should only appear in the Meals workflows.
+                const isMealsWorkflow = activeSearchContext === 'quick' || activeSearchContext === 'ing';
+                if (meals.length > 0 && isMealsWorkflow) {
+                    resultsContainer.innerHTML += '<h4 style="color:var(--accent); font-size:0.75em; text-transform:uppercase; margin:15px 0 8px; border-bottom:1px solid #333; padding-bottom:5px;">🍱 Your Saved Meals & Quick Foods</h4>';
                     meals.forEach(p => renderMLSearchItem(resultsContainer, p, currentRank++, query));
                 }
 
@@ -3478,8 +3481,8 @@
                             }
                         }
 
-                        // Check if we are currently in the Meals tab, if so, map to the Meal form
-                        if (document.getElementById('mealsTab').classList.contains('active') || document.getElementById('mealsTab').style.display !== 'none') {
+                        // Route scan results to Meals form only when Meals tab is actually active.
+                        if (document.getElementById('mealsTab').classList.contains('active')) {
                             if (currentMealType === 'food') {
                                 document.getElementById('m-name').value = name + brand;
                                 document.getElementById('m-quickcals').value = Math.round(energyKcal);
