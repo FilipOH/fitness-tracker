@@ -184,69 +184,372 @@ async function handleApiRequest(request, env) {
     }, 401);
   }
 
-  // GET /search (Proxy to Open Food Facts)
+  const userId = 1;
+
+  // GET /search (Unified ML-ready search)
   if (path === '/search' && method === 'GET') {
     const query = url.searchParams.get('q');
     if (!query) return jsonResponse({ products: [] });
 
     try {
-      // Switch to the modern v2 Search API for better filtering
-      // - categories_tags_en: tries to match the category
-      // - fields: minimizes data transfer
-      // - sort_by: popularity
-      // - lc: language preference (English)
-      
-      const searchParams = new URLSearchParams({
-        search_terms: query,
-        search_simple: '1',
-        action: 'process',
-        json: '1',
-        page_size: '25',
-        sort_by: 'unique_scans_n',
-        lc: 'en',            // Prefer English names
-        cc: 'uk',            // Prefer UK-sold products if possible
-        fields: 'product_name,brands,nutriments,code,countries,categories_tags'
+      const userAgent = 'FitnessDash/1.1 (Windows; info@ignitegroup.services) CloudflareWorker-Proxy';
+
+      // Helper for retrying fetches (especially for OFF which is flakey)
+      async function fetchWithRetry(targetUrl, maxAttempts = 3) {
+        let attempts = 0;
+        let lastRes = null;
+        while (attempts < maxAttempts) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            const res = await fetch(targetUrl, {
+              headers: { 'User-Agent': userAgent, 'Accept': 'application/json' },
+              signal: controller.signal,
+              cf: { cacheTtl: 3600, cacheEverything: true }
+            });
+            clearTimeout(timeoutId);
+            if (res.ok) return res;
+            lastRes = res;
+            if (res.status === 503 || res.status === 429) {
+              await new Promise(r => setTimeout(r, 1000 * (attempts + 1)));
+            } else {
+              break;
+            }
+          } catch (e) {
+            console.error(`Fetch error for ${targetUrl}:`, e.message);
+          }
+          attempts++;
+        }
+        return lastRes;
+      }
+
+      const usdaParams = new URLSearchParams({
+        api_key: env.USDA_API_KEY || '',
+        query: query,
+        pageSize: '20',
+        dataType: 'Foundation,SR Legacy'
       });
 
-      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?${searchParams.toString()}`;
+      // UK/US Synonym Mapping for better recall
+      const SYNONYMS = {
+        'soy': 'soya', 'soymilk': 'soya milk',
+        'soymilks': 'soya milk', 'soyamilk': 'soya milk',
+        'zucchini': 'courgette', 'eggplant': 'aubergine',
+        'cilantro': 'coriander', 'rutabaga': 'swede',
+        'scallion': 'spring onion', 'beet': 'beetroot'
+      };
+
+      const UK_RETAILERS = [
+        'tesco', 'sainsbury', 'asda', 'aldi', 'lidl', 'marks', 'waitrose', 
+        'morrison', 'm&s', 'co-op', 'everyday essentials', 'essential waitrose', 
+        'finest', 'taste the difference', 'ocado', 'iceland', 'waitrose & partners'
+      ];
+
+      // Normalize query for internal use and OFF search (UK brand bias)
+      let offQuery = query.toLowerCase();
+      // Handle the common "soymilk" string without boundaries too, as it's often used as one word
+      if (offQuery.includes('soymilk')) {
+          offQuery = offQuery.replace(/soymilk/g, 'soya milk');
+      }
       
-      const offRes = await fetch(offUrl, {
-        headers: { 
-          'User-Agent': 'FitnessTracker - info@fitness-tracker.local - 1.0',
-          'Accept': 'application/json'
-        },
-        cf: {
-          cacheTtl: 3600,
-          cacheEverything: true
+      Object.entries(SYNONYMS).forEach(([us, uk]) => {
+        const regex = new RegExp(`\\b${us}\\b`, 'g');
+        if (regex.test(offQuery)) {
+          offQuery = offQuery.replace(regex, uk);
         }
       });
-      
-      if (!offRes.ok) {
-        return jsonResponse({ error: `OFF API responded with ${offRes.status}` }, offRes.status);
+
+      const offParams = new URLSearchParams({
+        search_terms: offQuery,
+        page_size: '40',
+        sort_by: 'unique_scans_n',
+        lc: 'en',
+        cc: 'uk',
+        action: 'process',
+        json: '1'
+      });
+
+      let offUrl = `https://world.openfoodfacts.org/cgi/search.pl?${offParams.toString()}`;
+      let brandSearchUrl = null;
+
+      // Detect UK brands for "relaxed" search fallback
+      const detectedBrand = UK_RETAILERS.find(brand => {
+        const regex = new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        return regex.test(offQuery);
+      });
+
+      if (detectedBrand) {
+        // Create a relaxed search: remove brand from terms and use it as a brand filter
+        const relaxedTerms = offQuery.replace(detectedBrand, '').trim().replace(/\s+/g, ' ');
+        if (relaxedTerms) {
+          const brandParams = new URLSearchParams({
+            search_terms: relaxedTerms,
+            tagtype_0: 'brands',
+            tag_contains_0: 'contains',
+            tag_0: detectedBrand,
+            page_size: '40',
+            sort_by: 'unique_scans_n',
+            lc: 'en',
+            cc: 'uk',
+            action: 'process',
+            json: '1'
+          });
+          brandSearchUrl = `https://world.openfoodfacts.org/cgi/search.pl?${brandParams.toString()}`;
+        }
       }
+
+      const usdaUrl = `https://api.nal.usda.gov/fdc/v1/foods/search?${usdaParams.toString()}`;
+
+      // Flexible D1 search: split query into words to allow broad matching
+      // We use both the original words and the normalized ones for CoFID search
+      const qWordsRaw = offQuery.split(/[^a-z0-9]/).filter(x => x.length > 1);
+      const searchWords = qWordsRaw.length > 0 ? qWordsRaw : offQuery.split(/\s+/).filter(x => x);
       
-      const offData = await offRes.json();
-      
-      // Post-filter: Remove results that are definitely in the wrong language or missing names
-      if (offData.products) {
-        offData.products = offData.products.filter(p => {
-          if (!p.product_name) return false;
-          // Filter out results that are clearly not for English speaking markets if brand is also missing
-          if (!p.countries?.toLowerCase().includes('united kingdom') && 
-              !p.countries?.toLowerCase().includes('en:') && 
-              !p.brands) return true; // keep it just in case
-          return true;
+      // Use placeholders that won't match everything if unused
+      const w1 = searchWords[0] ? `%${searchWords[0]}%` : '%UNUSED_TOKEN%';
+      const w2 = searchWords[1] ? `%${searchWords[1]}%` : '%UNUSED_TOKEN%';
+      const w3 = searchWords[2] ? `%${searchWords[2]}%` : '%UNUSED_TOKEN%';
+
+      // Parallel fetch + D1 checks (History, Meals, CoFID, Weights)
+      const [usdaRes, offResRaw, brandOffResRaw, cofidResults, historyResults, mealsResults, weightsRows] = await Promise.all([
+        fetchWithRetry(usdaUrl, 2),
+        fetchWithRetry(offUrl, 3),
+        brandSearchUrl ? fetchWithRetry(brandSearchUrl, 3) : Promise.resolve(null),
+        env.DB.prepare(`
+          SELECT *, 
+          ( (CASE WHEN name LIKE ? OR search_keywords LIKE ? THEN 1 ELSE 0 END) +
+            (CASE WHEN name LIKE ? OR search_keywords LIKE ? THEN 1 ELSE 0 END) +
+            (CASE WHEN name LIKE ? OR search_keywords LIKE ? THEN 1 ELSE 0 END) ) as mc
+          FROM cofid_data 
+          WHERE (name LIKE ? OR search_keywords LIKE ? OR name LIKE ? OR search_keywords LIKE ? OR name LIKE ? OR search_keywords LIKE ?)
+          ORDER BY mc DESC, name ASC LIMIT 200
+        `).bind(w1, w1, w2, w2, w3, w3, w1, w1, w2, w2, w3, w3).all(),
+        env.DB.prepare(`
+          SELECT food_name, calories, protein, nutrients_json,
+          ( (CASE WHEN food_name LIKE ? THEN 1 ELSE 0 END) +
+            (CASE WHEN food_name LIKE ? THEN 1 ELSE 0 END) +
+            (CASE WHEN food_name LIKE ? THEN 1 ELSE 0 END) ) as mc
+          FROM food_logs 
+          WHERE user_id = ? AND (food_name LIKE ? OR food_name LIKE ? OR food_name LIKE ?)
+          GROUP BY food_name ORDER BY mc DESC, date DESC LIMIT 100
+        `).bind(w1, w2, w3, userId, w1, w2, w3).all(),
+        env.DB.prepare(`
+          SELECT m.meal_name, SUM(i.calories) as total_cals, SUM(i.protein) as total_pro,
+          ( (CASE WHEN m.meal_name LIKE ? THEN 1 ELSE 0 END) +
+            (CASE WHEN m.meal_name LIKE ? THEN 1 ELSE 0 END) +
+            (CASE WHEN m.meal_name LIKE ? THEN 1 ELSE 0 END) ) as mc
+          FROM meals m JOIN ingredients i ON m.meal_id = i.meal_id 
+          WHERE m.user_id = ? AND (m.meal_name LIKE ? OR m.meal_name LIKE ? OR m.meal_name LIKE ?)
+          GROUP BY m.meal_name ORDER BY mc DESC LIMIT 50
+        `).bind(w1, w2, w3, userId, w1, w2, w3).all(),
+        env.DB.prepare('SELECT * FROM search_weights').all()
+      ]);
+
+      const weights = { 
+        exact_match: 50000, starts_with: 20000, cofid_bonus: 100000, 
+        generic_bonus: 40000, uk_brand_bonus: 80000, history_bonus: 150000, 
+        meal_bonus: 120000, shortness_bonus: 5000 
+      };
+      weightsRows.results?.forEach(r => weights[r.feature_name] = r.weight_value);
+
+      const normalizedResults = [];
+
+      // 1. CoFID Adapter
+      cofidResults.results?.forEach(f => {
+        normalizedResults.push({
+          name: f.name, brand: f.brand || 'Generic (UK CoFID)', cals: f.calories, pro: f.protein, source: 'CoFID',
+          nutrients: { 
+            fat: f.fat, carbs: f.carbs, fiber: f.fiber, sugar: f.sugar,
+            sodium: f.sodium, potassium: f.potassium, calcium: f.calcium,
+            magnesium: f.magnesium, iron: f.iron, zinc: f.zinc,
+            'vitamin-a': f.vitamin_a, 'vitamin-c': f.vitamin_c, 'vitamin-d': f.vitamin_d,
+            'vitamin-e': f.vitamin_e, 'vitamin-k': f.vitamin_k,
+            source: 'UK CoFID'
+          }
+        });
+      });
+
+      // 2. History Adapter
+      historyResults.results?.forEach(h => {
+        normalizedResults.push({
+          name: h.food_name, brand: 'Logged Before', cals: h.calories, pro: h.protein, source: 'History',
+          nutrients: h.nutrients_json ? JSON.parse(h.nutrients_json) : null
+        });
+      });
+
+      // 3. Saved Meals Adapter
+      mealsResults.results?.forEach(m => {
+        normalizedResults.push({
+          name: m.meal_name, brand: 'Your Meal', cals: m.total_cals, pro: m.total_pro, source: 'Saved Meal',
+          nutrients: null // Meals are complex aggregates
+        });
+      });
+
+      // 4. USDA Adapter
+      if (usdaRes && usdaRes.ok) {
+        const usdaData = await usdaRes.json();
+        (usdaData.foods || []).forEach(f => {
+          const findNutrient = (id) => f.foodNutrients?.find(n => n.nutrientId === id)?.value || 0;
+          normalizedResults.push({
+            name: f.description, brand: 'Generic (USDA)', cals: findNutrient(1008), pro: findNutrient(1003), source: 'USDA',
+            nutrients: { 
+              fat: findNutrient(1004), carbs: findNutrient(1005), 
+              fiber: findNutrient(1079), sugar: findNutrient(2000) || findNutrient(1063), // 2000 is often Sugars, total
+              sodium: findNutrient(1093), potassium: findNutrient(1092), calcium: findNutrient(1087),
+              magnesium: findNutrient(1090), iron: findNutrient(1089), zinc: findNutrient(1095),
+              'vitamin-a': findNutrient(1106), 'vitamin-c': findNutrient(1162), 
+              'vitamin-d': findNutrient(1114) || findNutrient(1110), 'vitamin-e': findNutrient(1109), 
+              'vitamin-k': findNutrient(1185),
+              source: 'USDA Foundation' 
+            }
+          });
         });
       }
-      
-      return jsonResponse(offData);
+
+      // 5. OFF Adapter
+      const processOffResults = (offData) => {
+        (offData.products || []).filter(p => p.product_name).forEach(p => {
+          const n = p.nutriments || {};
+          normalizedResults.push({
+            name: p.product_name, brand: p.brands || 'Store Brand', cals: Math.round(n['energy-kcal_100g'] || 0), pro: n.proteins_100g || 0, source: 'OFF',
+            nutrients: { 
+              fat: n.fat_100g || 0, carbs: n.carbohydrates_100g || 0, 
+              sugar: n.sugars_100g || 0, fiber: n.fiber_100g || 0,
+              sodium: (n.sodium_100g || 0) * 1000, 
+              potassium: (n.potassium_100g || 0) * 1000, 
+              calcium: (n.calcium_100g || 0) * 1000,
+              magnesium: (n.magnesium_100g || 0) * 1000, 
+              iron: (n.iron_100g || 0) * 1000, 
+              zinc: (n.zinc_100g || 0) * 1000,
+              'vitamin-a': (n['vitamin-a_100g'] || 0) * 1000000, 
+              'vitamin-c': (n['vitamin-c_100g'] || 0) * 1000, 
+              'vitamin-d': (n['vitamin-d_100g'] || 0) * 1000000, 
+              'vitamin-e': (n['vitamin-e_100g'] || 0) * 1000, 
+              'vitamin-k': (n['vitamin-k_100g'] || 0) * 1000000,
+              source: 'Open Food Facts' 
+            }
+          });
+        });
+      };
+
+      if (offResRaw && offResRaw.ok) {
+        processOffResults(await offResRaw.json());
+      }
+      if (brandOffResRaw && brandOffResRaw.ok) {
+        processOffResults(await brandOffResRaw.json());
+      }
+
+      // Scoring & Sorting (Top 10 per source)
+      function calculateProductScore(p, q, w) {
+        if (!p.name) return 0;
+        let score = 0;
+        const n = p.name.toLowerCase();
+        const b = (p.brand || '').toLowerCase();
+        const qClean = q.toLowerCase();
+        // Remove punctuation from query words for comparison
+        const qWords = qClean.split(/[^a-z0-9]/).filter(x => x.length > 0);
+        const nWords = n.split(/[^a-z0-9]/).filter(x => x.length > 0);
+        
+        let matchCount = 0;
+        let allWordsMatch = true;
+        qWords.forEach(qw => { 
+          // Match if it's a whole word or significant prefix
+          let isMatch = nWords.some(nw => nw === qw || (nw.length > 3 && nw.startsWith(qw)));
+          
+          // Synonym support (e.g., soy matches soya)
+          if (!isMatch) {
+            const syn = SYNONYMS[qw] || Object.keys(SYNONYMS).find(k => SYNONYMS[k] === qw);
+            if (syn) {
+              const synWords = syn.split(/\s+/);
+              // Match if ANY of the synonym words are found as a whole word or prefix
+              isMatch = synWords.some(sw => sw.length > 3 && nWords.some(nw => nw === sw || nw.startsWith(sw)));
+            }
+          }
+
+          if (isMatch || b.includes(qw)) {
+            matchCount++;
+          } else {
+            allWordsMatch = false;
+          }
+        });
+
+        if (n === qClean) score += (w.exact_match || 50000);
+        if (n.startsWith(qClean)) score += (w.starts_with || 20000);
+        if (allWordsMatch && qWords.length > 1) score += (w.all_words_bonus || 30000);
+        
+        if (p.source === 'CoFID') score += (w.cofid_bonus || 40000);
+        if (p.source === 'History') score += (w.history_bonus || 60000);
+        if (p.source === 'Saved Meal') score += (w.meal_bonus || 50000);
+        if (p.source === 'USDA') score += (w.generic_bonus || 10000);
+        
+        if (UK_RETAILERS.some(r => b.includes(r) || n.includes(r))) score += (w.uk_brand_bonus || 80000);
+
+        // Word match density bonus
+        score += (matchCount * 5000);
+        if (qWords.length > 0) {
+            const coverage = matchCount / qWords.length;
+            score += (coverage * 10000);
+        }
+        
+        score += (100 / (n.length + 1)) * (w.shortness_bonus || 2000);
+
+        // If at least one word doesn't match and the query is specific, lower the score
+        if (matchCount === 0) score = 0;
+        return score;
+      }
+
+      // Process and Group Top 10 per source
+      const scored = normalizedResults.map(p => ({ ...p, score: calculateProductScore(p, query, weights) }));
+      const grouped = {};
+      scored.forEach(p => {
+        if (!grouped[p.source]) grouped[p.source] = [];
+        grouped[p.source].push(p);
+      });
+
+      const finalProducts = [];
+      Object.keys(grouped).forEach(source => {
+        const top10 = grouped[source].sort((a,b) => b.score - a.score).slice(0, 10);
+        finalProducts.push(...top10);
+      });
+
+      return jsonResponse({ 
+        products: finalProducts.sort((a,b) => b.score - a.score),
+        weights_version: 'v1.ml-ready-top10'
+      });
+
     } catch (e) {
-      console.error('OFF Proxy Error:', e);
+      console.error('Unified Search Error:', e);
       return jsonResponse({ error: 'Search failed', details: e.message }, 500);
     }
   }
 
-  const userId = 1;
+  // POST /feedback (Record user clicks for ML training)
+  if (path === '/feedback' && method === 'POST') {
+    const { query, resultName, resultSource, rank } = await request.json();
+    
+    await env.DB.prepare(`
+      INSERT INTO search_feedback (query, result_name, result_source, clicked_rank)
+      VALUES (?, ?, ?, ?)
+    `).bind(query, resultName, resultSource, rank).run();
+
+    // Check if we reached 20 new feedbacks to trigger a "training" tweak
+    const count = await env.DB.prepare('SELECT COUNT(*) as total FROM search_feedback').first();
+    if (count.total % 20 === 0 && count.total > 0) {
+      // Trigger background weight adjustment logic
+      // In a real scenario, this would be more complex, but here we'll do a simple nudge
+      console.log('Triggering "training" tweak after 20 feedbacks...');
+      
+      // If users click results at lower ranks (> 5), we slightly increase "starts_with" or "generic_bonus"
+      const avgRank = await env.DB.prepare('SELECT AVG(clicked_rank) as avg_r FROM search_feedback').first();
+      
+      if (avgRank.avg_r > 3) {
+        // Results aren't at the top, boost the generic and exact match weights
+        await env.DB.prepare("UPDATE search_weights SET weight_value = weight_value * 1.05 WHERE feature_name IN ('generic_bonus', 'cofid_bonus', 'exact_match')").run();
+      }
+    }
+
+    return jsonResponse({ success: true, message: 'Feedback recorded' });
+  }
 
   // POST /log
   if (path === '/log' && method === 'POST') {
