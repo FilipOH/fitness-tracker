@@ -2351,7 +2351,7 @@
                 <div style="margin-bottom: 12px;">
                     <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase; letter-spacing: 0.5px;">Ingredient Name</label>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" placeholder="e.g. Chicken Breast" value="${name}" style="padding:10px; font-size:16px; flex: 1; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; display: block;">
+                        <input type="text" class="ing-name" placeholder="e.g. Chicken Breast" value="${name}" style="padding:10px; font-size:16px; flex: 1; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; display: block;">
                         <button onclick="openSearch('ing', this.previousElementSibling)" style="background: var(--accent); color: white; border: none; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer;" title="Search Food Database">
                             <i class="fas fa-search" style="font-size: 0.9em;"></i>
                         </button>
@@ -2363,7 +2363,7 @@
                     <div style="display: flex; flex-direction: column;">
                         <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Amount</label>
                         <div style="position:relative; display:flex;">
-                            <input type="number" placeholder="Amt" value="${qty}" style="padding:10px; width:100%; font-size:16px; padding-right: 32px; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box;" title="Amount">
+                            <input type="number" class="ing-qty" placeholder="Amt" value="${qty}" style="padding:10px; width:100%; font-size:16px; padding-right: 32px; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box;" title="Amount">
                             <select class="ing-unit" style="position:absolute; right:1px; top:1px; bottom:1px; width: 34px; background:var(--bg); color:var(--accent); border:none; border-left:1px solid #444; font-size:11px; padding:0 2px; border-radius:0 8px 8px 0; -webkit-appearance: none; appearance: none; text-align: center;">
                                 <option value="g" ${unit === 'g' ? 'selected' : ''}>g</option>
                                 <option value="ml" ${unit === 'ml' ? 'selected' : ''}>ml</option>
@@ -2386,7 +2386,7 @@
             container.appendChild(div);
 
             // Attach scaling logic to this specific row
-            const qtyInp = div.querySelector('input[type="number"]');
+            const qtyInp = div.querySelector('.ing-qty');
             const calInp = div.querySelector('.ing-cals');
             const proInp = div.querySelector('.ing-pro');
             
