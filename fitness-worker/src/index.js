@@ -325,7 +325,7 @@ async function handleApiRequest(request, env) {
           ORDER BY mc DESC, name ASC LIMIT 200
         `).bind(w1, w1, w2, w2, w3, w3, w1, w1, w2, w2, w3, w3).all(),
         env.DB.prepare(`
-          SELECT food_name, calories, protein, nutrients_json,
+          SELECT food_name, calories, protein, carbs, fat, nutrients_json,
           ( (CASE WHEN food_name LIKE ? THEN 1 ELSE 0 END) +
             (CASE WHEN food_name LIKE ? THEN 1 ELSE 0 END) +
             (CASE WHEN food_name LIKE ? THEN 1 ELSE 0 END) ) as mc
@@ -334,7 +334,8 @@ async function handleApiRequest(request, env) {
           GROUP BY food_name ORDER BY mc DESC, date DESC LIMIT 100
         `).bind(w1, w2, w3, userId, w1, w2, w3).all(),
         env.DB.prepare(`
-          SELECT m.meal_name, SUM(i.calories) as total_cals, SUM(i.protein) as total_pro,
+             SELECT m.meal_name, SUM(i.calories) as total_cals, SUM(i.protein) as total_pro,
+               SUM(i.carbs) as total_carbs, SUM(i.fat) as total_fat,
           ( (CASE WHEN m.meal_name LIKE ? THEN 1 ELSE 0 END) +
             (CASE WHEN m.meal_name LIKE ? THEN 1 ELSE 0 END) +
             (CASE WHEN m.meal_name LIKE ? THEN 1 ELSE 0 END) ) as mc
@@ -357,9 +358,10 @@ async function handleApiRequest(request, env) {
       // 1. CoFID Adapter
       cofidResults.results?.forEach(f => {
         normalizedResults.push({
-          name: f.name, brand: f.brand || 'Generic (UK CoFID)', cals: f.calories, pro: f.protein, source: 'CoFID',
+          name: f.name, brand: f.brand || 'Generic (UK CoFID)', cals: f.calories,
+          pro: f.protein, carbs: f.carbs, fat: f.fat, source: 'CoFID',
           nutrients: { 
-            fat: f.fat, carbs: f.carbs, fiber: f.fiber, sugar: f.sugar,
+            fiber: f.fiber, sugar: f.sugar,
             sodium: f.sodium, potassium: f.potassium, calcium: f.calcium,
             magnesium: f.magnesium, iron: f.iron, zinc: f.zinc,
             'vitamin-a': f.vitamin_a, 'vitamin-c': f.vitamin_c, 'vitamin-d': f.vitamin_d,
@@ -371,16 +373,23 @@ async function handleApiRequest(request, env) {
 
       // 2. History Adapter
       historyResults.results?.forEach(h => {
+        const nutrients = h.nutrients_json ? JSON.parse(h.nutrients_json) : null;
+        if (nutrients) {
+          delete nutrients.carbs;
+          delete nutrients.fat;
+        }
         normalizedResults.push({
-          name: h.food_name, brand: 'Logged Before', cals: h.calories, pro: h.protein, source: 'History',
-          nutrients: h.nutrients_json ? JSON.parse(h.nutrients_json) : null
+          name: h.food_name, brand: 'Logged Before', cals: h.calories,
+          pro: h.protein, carbs: h.carbs, fat: h.fat, source: 'History',
+          nutrients
         });
       });
 
       // 3. Saved Meals Adapter
       mealsResults.results?.forEach(m => {
         normalizedResults.push({
-          name: m.meal_name, brand: 'Your Meal', cals: m.total_cals, pro: m.total_pro, source: 'Saved Meal',
+          name: m.meal_name, brand: 'Your Meal', cals: m.total_cals,
+          pro: m.total_pro, carbs: m.total_carbs, fat: m.total_fat, source: 'Saved Meal',
           nutrients: null // Meals are complex aggregates
         });
       });
@@ -391,9 +400,9 @@ async function handleApiRequest(request, env) {
         (usdaData.foods || []).forEach(f => {
           const findNutrient = (id) => f.foodNutrients?.find(n => n.nutrientId === id)?.value || 0;
           normalizedResults.push({
-            name: f.description, brand: 'Generic (USDA)', cals: findNutrient(1008), pro: findNutrient(1003), source: 'USDA',
+            name: f.description, brand: 'Generic (USDA)', cals: findNutrient(1008),
+            pro: findNutrient(1003), carbs: findNutrient(1005), fat: findNutrient(1004), source: 'USDA',
             nutrients: { 
-              fat: findNutrient(1004), carbs: findNutrient(1005), 
               fiber: findNutrient(1079), sugar: findNutrient(2000) || findNutrient(1063), // 2000 is often Sugars, total
               sodium: findNutrient(1093), potassium: findNutrient(1092), calcium: findNutrient(1087),
               magnesium: findNutrient(1090), iron: findNutrient(1089), zinc: findNutrient(1095),
@@ -411,9 +420,9 @@ async function handleApiRequest(request, env) {
         (offData.products || []).filter(p => p.product_name).forEach(p => {
           const n = p.nutriments || {};
           normalizedResults.push({
-            name: p.product_name, brand: p.brands || 'Store Brand', cals: Math.round(n['energy-kcal_100g'] || 0), pro: n.proteins_100g || 0, source: 'OFF',
+            name: p.product_name, brand: p.brands || 'Store Brand', cals: Math.round(n['energy-kcal_100g'] || 0),
+            pro: n.proteins_100g || 0, carbs: n.carbohydrates_100g || 0, fat: n.fat_100g || 0, source: 'OFF',
             nutrients: { 
-              fat: n.fat_100g || 0, carbs: n.carbohydrates_100g || 0, 
               sugar: n.sugars_100g || 0, fiber: n.fiber_100g || 0,
               sodium: (n.sodium_100g || 0) * 1000, 
               potassium: (n.potassium_100g || 0) * 1000, 
@@ -563,12 +572,18 @@ async function handleApiRequest(request, env) {
     
     if (!data) return jsonResponse({ error: 'Data is missing' }, 400);
 
-    const { date, time, type, foodName, note, calories, value, protein, exercise, weight, reps, amount, amountUnit, nutrients } = data;
+    const { date, time, type, foodName, note, calories, value, protein, carbs, fat, exercise, weight, reps, amount, amountUnit, nutrients } = data;
     if (!date) return jsonResponse({ error: 'Date is required' }, 400);
 
     const finalFoodName = foodName || note || '';
     const finalCalories = calories !== undefined ? calories : (value || 0);
-    const nutrientsJson = nutrients ? JSON.stringify(nutrients) : null;
+    let nutrientsJson = null;
+    if (nutrients) {
+      const micronutrients = { ...nutrients };
+      delete micronutrients.carbs;
+      delete micronutrients.fat;
+      nutrientsJson = JSON.stringify(micronutrients);
+    }
     
     // Ensure time is never null/empty for the database
     let finalTime = time;
@@ -579,9 +594,9 @@ async function handleApiRequest(request, env) {
     try {
       if (type === 'FOOD') {
         await env.DB.prepare(`
-          INSERT INTO food_logs (user_id, date, time, food_name, calories, protein, amount, amount_unit, nutrients_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(userId, date, finalTime, finalFoodName, Number(finalCalories), Number(protein || 0), amount || null, amountUnit || null, nutrientsJson).run();
+          INSERT INTO food_logs (user_id, date, time, food_name, calories, protein, carbs, fat, amount, amount_unit, nutrients_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(userId, date, finalTime, finalFoodName, Number(finalCalories), Number(protein || 0), Number(carbs || 0), Number(fat || 0), amount || null, amountUnit || null, nutrientsJson).run();
       } else if (type === 'GYM') {
         await env.DB.prepare(`
           INSERT INTO gym_logs (user_id, date, time)
@@ -668,6 +683,8 @@ async function handleApiRequest(request, env) {
       Type: 'FOOD', 
       Value: l.calories, 
       Protein: l.protein, 
+      Carbs: l.carbs,
+      Fat: l.fat,
       Date: l.date, 
       Time: l.time, 
       Note: l.food_name, 
@@ -701,12 +718,16 @@ async function handleApiRequest(request, env) {
       // Calculate totals on the fly
       const totalCalories = mealIngredients.reduce((sum, i) => sum + i.calories, 0);
       const totalProtein = mealIngredients.reduce((sum, i) => sum + i.protein, 0);
+      const totalCarbs = mealIngredients.reduce((sum, i) => sum + (i.carbs || 0), 0);
+      const totalFat = mealIngredients.reduce((sum, i) => sum + (i.fat || 0), 0);
 
       return {
         mealId: m.meal_id,
         MealName: m.meal_name,
         Calories: totalCalories,
         Protein: totalProtein,
+        Carbs: totalCarbs,
+        Fat: totalFat,
         Portions: m.portions || 1,
         isQuickFood: m.is_quick_food === 1,
         Ingredients: mealIngredients.map(i => ({
@@ -715,7 +736,15 @@ async function handleApiRequest(request, env) {
           unit: i.amount_units,
           cals: i.calories,
           pro: i.protein,
-          nutrients: i.nutrients_json ? JSON.parse(i.nutrients_json) : null
+          carbs: i.carbs,
+          fat: i.fat,
+          nutrients: (() => {
+            if (!i.nutrients_json) return null;
+            const nutrients = JSON.parse(i.nutrients_json);
+            delete nutrients.carbs;
+            delete nutrients.fat;
+            return nutrients;
+          })()
         }))
       };
     });
@@ -751,8 +780,8 @@ async function handleApiRequest(request, env) {
       for (const ing of ingredients) {
         if (ing.desc || isQuickFood) {
           await env.DB.prepare(`
-            INSERT INTO ingredients (meal_id, name, amount, amount_units, calories, protein, nutrients_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ingredients (meal_id, name, amount, amount_units, calories, protein, carbs, fat, nutrients_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             mealId, 
             ing.desc || finalName, 
@@ -760,7 +789,11 @@ async function handleApiRequest(request, env) {
             ing.unit || 'g', 
             Number(ing.cals || 0), 
             Number(ing.pro || 0),
-            ing.nutrients ? JSON.stringify(ing.nutrients) : null
+            Number(ing.carbs || 0),
+            Number(ing.fat || 0),
+            ing.nutrients ? JSON.stringify(Object.fromEntries(
+              Object.entries(ing.nutrients).filter(([key]) => key !== 'carbs' && key !== 'fat')
+            )) : null
           ).run();
         }
       }

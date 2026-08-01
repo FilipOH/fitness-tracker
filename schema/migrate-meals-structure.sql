@@ -24,6 +24,8 @@ CREATE TABLE ingredients (
   amount REAL NOT NULL,
   amount_units TEXT NOT NULL,
   protein REAL NOT NULL DEFAULT 0,
+  carbs REAL NOT NULL DEFAULT 0,
+  fat REAL NOT NULL DEFAULT 0,
   FOREIGN KEY (meal_id) REFERENCES meals(meal_id) ON DELETE CASCADE
 );
 

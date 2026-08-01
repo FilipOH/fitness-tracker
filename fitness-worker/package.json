@@ -16,5 +16,8 @@
   "license": "MIT",
   "dependencies": {
     "otplib": "^13.4.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.118.0"
   }
 }

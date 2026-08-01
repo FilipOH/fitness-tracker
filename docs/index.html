@@ -348,7 +348,7 @@
                         </div>
                     </div>
 
-                    <!-- Row 5: Calories & Protein -->
+                    <!-- Row 5: Calories and macros -->
                     <div class="grid" style="margin-bottom:10px; grid-template-columns: 1fr 1fr;">
                         <div class="form-row" style="margin-bottom:0;">
                             <label>Calories</label>
@@ -357,6 +357,14 @@
                         <div class="form-row" style="margin-bottom:0;">
                             <label>Protein (g)</label>
                             <input type="number" id="foodPro" placeholder="Prot" min="0" max="500">
+                        </div>
+                        <div class="form-row" style="margin-bottom:0;">
+                            <label>Carbs (g)</label>
+                            <input type="number" id="foodCarbs" placeholder="Carbs" min="0" max="1000" step="0.1">
+                        </div>
+                        <div class="form-row" style="margin-bottom:0;">
+                            <label>Fat (g)</label>
+                            <input type="number" id="foodFat" placeholder="Fat" min="0" max="500" step="0.1">
                         </div>
                     </div>
 
@@ -475,6 +483,7 @@
         
         <div class="chart-container"><canvas id="weightChart"></canvas></div>
         <div class="chart-container" style="margin-top: 15px;"><canvas id="calorieChart"></canvas></div>
+        <div class="chart-container" style="margin-top: 15px; height: 260px;"><canvas id="macroChart"></canvas></div>
 
         <!-- 7-Day Micronutrient Average Section -->
         <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">7-Day Micronutrient Avg</h2>
@@ -544,8 +553,12 @@
                         </select>
                     </div>
                 </div>
-                <div class="form-row"><label>Calories</label><input type="number" id="m-quickcals"></div>
-                <div class="form-row"><label>Protein (g)</label><input type="number" id="m-quickpro"></div>
+                <div class="grid" style="margin-bottom:10px; grid-template-columns: 1fr 1fr;">
+                    <div class="form-row" style="margin-bottom:0;"><label>Calories</label><input type="number" id="m-quickcals"></div>
+                    <div class="form-row" style="margin-bottom:0;"><label>Protein (g)</label><input type="number" id="m-quickpro" step="0.1"></div>
+                    <div class="form-row" style="margin-bottom:0;"><label>Carbs (g)</label><input type="number" id="m-quickcarbs" step="0.1"></div>
+                    <div class="form-row" style="margin-bottom:0;"><label>Fat (g)</label><input type="number" id="m-quickfat" step="0.1"></div>
+                </div>
                 
                 <div id="liveQuickSummary" style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin: 10px 0; border: 1px solid #444; display: none;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -662,6 +675,7 @@
         let meals = [];
         let chartInstance = null;
         let calorieChartInstance = null;
+        let macroChartInstance = null;
         let goals = { weeklyNet: -3850, weeklyComparison: 'less', protein: 80, sleep: 75, gym: 2 };
         let goalHistory = []; // Historical goals with effectiveDate
         let allRawItems = [];
@@ -2096,10 +2110,11 @@
             else if (item.isQuickFood && item.Ingredients && item.Ingredients[0]?.nutrients) n = item.Ingredients[0].nutrients;
             else if (item.Ingredients) {
                 // Aggregated nutrients for meals
-                n = { fat:0, carbs:0, fiber:0, sugar:0, source: 'Aggregated Ingredients' };
+                n = { fiber:0, sugar:0, source: 'Aggregated Ingredients' };
                 item.Ingredients.forEach(ing => {
                     if (!ing.nutrients) return;
                     for (const key in ing.nutrients) {
+                        if (key === 'carbs' || key === 'fat') continue;
                         if (typeof ing.nutrients[key] === 'number') {
                             // Note: Ingredients in our system are already scaled when added to the list,
                             // but if they weren't, we'd scale here. Since we fixed the scaling on input,
@@ -2138,11 +2153,9 @@
             // Build content dynamically from RDI_DATA to ensure we show all 13
             let contentHtml = `<div style="text-align:left; max-height: 350px; overflow-y: auto; padding-right: 5px;">`;
             
-            // Macro section first
+            // Dietary details that are not tracked as primary macro columns.
             contentHtml += `
                 <div style="margin-bottom:10px; border-bottom:1px solid #444; padding-bottom:5px;">
-                    <p style="margin:4px 0;"><b>Fat:</b> ${((n.fat || 0) * scale).toFixed(1)}g</p>
-                    <p style="margin:4px 0;"><b>Carbs:</b> ${((n.carbs || 0) * scale).toFixed(1)}g</p>
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <p style="margin:4px 0;"><b>Fiber:</b> ${((n.fiber || 0) * scale).toFixed(1)}g</p>
                         <span style="color:var(--sub); font-size:0.85em; opacity: 0.8;">${Math.round(((n.fiber || 0) * scale / RDI_DATA['fiber'].goal) * 100)}%</span>
@@ -2251,15 +2264,19 @@
             const qtyInput = document.getElementById('foodQty');
             const calInput = document.getElementById('foodCals');
             const proInput = document.getElementById('foodPro');
+            const carbsInput = document.getElementById('foodCarbs');
+            const fatInput = document.getElementById('foodFat');
             
             // Context 2: Quick Food Sub-tab (in Meals)
             const quickQtyInput = document.getElementById('m-quickqty');
             const quickCalInput = document.getElementById('m-quickcals');
             const quickProInput = document.getElementById('m-quickpro');
+            const quickCarbsInput = document.getElementById('m-quickcarbs');
+            const quickFatInput = document.getElementById('m-quickfat');
             
             const pairs = [
-                { qty: qtyInput, cal: calInput, pro: proInput },
-                { qty: quickQtyInput, cal: quickCalInput, pro: quickProInput }
+                { qty: qtyInput, cal: calInput, pro: proInput, carbs: carbsInput, fat: fatInput },
+                { qty: quickQtyInput, cal: quickCalInput, pro: quickProInput, carbs: quickCarbsInput, fat: quickFatInput }
             ];
 
             pairs.forEach(pair => {
@@ -2271,6 +2288,8 @@
                         isAutoCalculating = true;
                         if (pair.cal) pair.cal.value = Math.round(qty * ratioLock.cal_per_unit);
                         if (pair.pro) pair.pro.value = parseFloat(qty * ratioLock.pro_per_unit).toFixed(1);
+                        if (pair.carbs) pair.carbs.value = parseFloat(qty * ratioLock.carbs_per_unit).toFixed(1);
+                        if (pair.fat) pair.fat.value = parseFloat(qty * ratioLock.fat_per_unit).toFixed(1);
                         isAutoCalculating = false;
                     }
                     if (pair.qty.id === 'm-quickqty') {
@@ -2279,14 +2298,16 @@
                         if (qs && qt) {
                             const c = document.getElementById('m-quickcals').value || 0;
                             const p = document.getElementById('m-quickpro').value || 0;
-                            qt.innerText = `${c} cals | ${p}g pro`;
+                            const carbs = document.getElementById('m-quickcarbs').value || 0;
+                            const fat = document.getElementById('m-quickfat').value || 0;
+                            qt.innerText = `${c} cal | P ${p}g | C ${carbs}g | F ${fat}g`;
                             qs.style.display = (c > 0 || p > 0) ? 'block' : 'none';
                         }
                     }
                 });
 
-                // If user manually edits Cals/Pro, break the ratio lock
-                [pair.cal, pair.pro].forEach(el => {
+                // If the user manually edits calories/macros, break the ratio lock.
+                [pair.cal, pair.pro, pair.carbs, pair.fat].forEach(el => {
                     if (!el) return;
                     el.addEventListener('input', () => {
                         if (isAutoCalculating) return;
@@ -2322,22 +2343,31 @@
             const rows = container.querySelectorAll('.ing-row');
             let totalCals = 0;
             let totalPro = 0;
+            let totalCarbs = 0;
+            let totalFat = 0;
             let totalMicros = {};
             
             rows.forEach(row => {
                 const calInp = row.querySelector('.ing-cals');
                 const proInp = row.querySelector('.ing-pro');
+                const carbsInp = row.querySelector('.ing-carbs');
+                const fatInp = row.querySelector('.ing-fat');
                 const cals = calInp ? (parseFloat(calInp.value) || 0) : 0;
                 const pro = proInp ? (parseFloat(proInp.value) || 0) : 0;
+                const carbs = carbsInp ? (parseFloat(carbsInp.value) || 0) : 0;
+                const fat = fatInp ? (parseFloat(fatInp.value) || 0) : 0;
                 
                 totalCals += cals;
                 totalPro += pro;
+                totalCarbs += carbs;
+                totalFat += fat;
 
                 // Sum up micros if present
                 if (row.dataset.nutrients) {
                     try {
                         const micros = JSON.parse(row.dataset.nutrients);
                         for (const key in micros) {
+                            if (key === 'carbs' || key === 'fat') continue;
                             if (typeof micros[key] === 'number') {
                                 totalMicros[key] = (totalMicros[key] || 0) + micros[key];
                             }
@@ -2353,7 +2383,7 @@
             
             if (rows.length > 0) {
                 if (liveContainer) liveContainer.style.display = 'block';
-                if (summary) summary.innerHTML = `${Math.round(totalCals)} cals | ${totalPro.toFixed(1)}g pro`;
+                if (summary) summary.innerHTML = `${Math.round(totalCals)} cal | P ${totalPro.toFixed(1)}g | C ${totalCarbs.toFixed(1)}g | F ${totalFat.toFixed(1)}g`;
                 currentMealMicros = totalMicros;
             } else {
                 if (liveContainer) liveContainer.style.display = 'none';
@@ -2361,7 +2391,7 @@
             }
         }
 
-        function addIngredientLine(name = '', qty = '', cals = '', pro = '', unit = 'g', nutrients = null) {
+        function addIngredientLine(name = '', qty = '', cals = '', pro = '', carbs = '', fat = '', unit = 'g', nutrients = null) {
             const container = document.getElementById('ingredientsList');
             const index = container.children.length + 1;
             
@@ -2414,6 +2444,16 @@
                         <input type="number" placeholder="Prot" class="ing-pro" value="${pro}" style="padding:10px; font-size:16px; width: 100%; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box;" title="Protein">
                     </div>
                 </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                    <div style="display: flex; flex-direction: column;">
+                        <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Carbs</label>
+                        <input type="number" placeholder="Carbs" class="ing-carbs" value="${carbs}" step="0.1" style="padding:10px; font-size:16px; width:100%; border-radius:8px; border:1px solid #444; background:#222; color:white; box-sizing:border-box;" title="Carbs">
+                    </div>
+                    <div style="display: flex; flex-direction: column;">
+                        <label style="font-size: 0.65em; color: var(--sub); margin-bottom: 4px; display: block; text-transform: uppercase;">Fat</label>
+                        <input type="number" placeholder="Fat" class="ing-fat" value="${fat}" step="0.1" style="padding:10px; font-size:16px; width:100%; border-radius:8px; border:1px solid #444; background:#222; color:white; box-sizing:border-box;" title="Fat">
+                    </div>
+                </div>
             `;
             container.appendChild(div);
 
@@ -2421,6 +2461,8 @@
             const qtyInp = div.querySelector('.ing-qty');
             const calInp = div.querySelector('.ing-cals');
             const proInp = div.querySelector('.ing-pro');
+            const carbsInp = div.querySelector('.ing-carbs');
+            const fatInp = div.querySelector('.ing-fat');
             
             qtyInp.addEventListener('input', () => {
                 const baseNutrientsStr = div.dataset.baseNutrients;
@@ -2434,6 +2476,8 @@
                 // Scale UI fields
                 calInp.value = Math.round(baseNutrients.calories * ratio);
                 proInp.value = (baseNutrients.protein * ratio).toFixed(1);
+                carbsInp.value = (baseNutrients.carbs * ratio).toFixed(1);
+                fatInp.value = (baseNutrients.fat * ratio).toFixed(1);
                 
                 // Scale internal micros object
                 const scaledMicros = {};
@@ -2449,8 +2493,8 @@
                 if (typeof updateMealTotals === 'function') updateMealTotals();
             });
             
-            // Break lock if cals/pro edited manually
-            [calInp, proInp].forEach(el => {
+            // Break lock if calories/macros are edited manually.
+            [calInp, proInp, carbsInp, fatInp].forEach(el => {
                 el.addEventListener('input', () => {
                     div.dataset.baseNutrients = ''; // Clear lock
                     div.dataset.nutrients = ''; // Clear micros as they are no longer in sync
@@ -2508,6 +2552,8 @@
             if (quickUnit) quickUnit.value = 'g';
             document.getElementById('m-quickcals').value = '';
             document.getElementById('m-quickpro').value = '';
+            document.getElementById('m-quickcarbs').value = '';
+            document.getElementById('m-quickfat').value = '';
             document.getElementById('ingredientsList').innerHTML = '';
             
             lastScannedNutrients = null;
@@ -2537,6 +2583,8 @@
                 const quickUnit = document.getElementById('m-quickunit').value || 'unit';
                 const quickCals = document.getElementById('m-quickcals').value;
                 const quickPro = document.getElementById('m-quickpro').value;
+                const quickCarbs = document.getElementById('m-quickcarbs').value;
+                const quickFat = document.getElementById('m-quickfat').value;
                 
                 if (!quickCals || parseFloat(quickCals) <= 0) {
                     showToast('Please enter calories for quick food', 'exclamation-triangle');
@@ -2554,9 +2602,16 @@
                     unit: quickUnit,
                     cals: totalCals,
                     pro: totalPro,
+                    carbs: parseFloat(quickCarbs || 0),
+                    fat: parseFloat(quickFat || 0),
                     nutrients: (() => {
                         if (!lastScannedNutrients) return null;
-                        if (!ratioLock) return lastScannedNutrients;
+                        if (!ratioLock) {
+                            const micros = { ...lastScannedNutrients };
+                            delete micros.carbs;
+                            delete micros.fat;
+                            return micros;
+                        }
                         // Use ratioLock or calculate from baseQty if available
                         const src = lastScannedNutrients.source || '';
                         const isExt = src.includes('OFF') || src.includes('USDA') || src.includes('CoFID') || src.includes('UK') || src.includes('Open Food Facts') || src.includes('Foundation');
@@ -2564,6 +2619,10 @@
                         const scale = qtyVal / baseQty;
                         const scaled = { ...lastScannedNutrients };
                         for (const key in lastScannedNutrients) {
+                            if (key === 'carbs' || key === 'fat') {
+                                delete scaled[key];
+                                continue;
+                            }
                             if (typeof lastScannedNutrients[key] === 'number') {
                                 scaled[key] = lastScannedNutrients[key] * scale;
                             }
@@ -2576,7 +2635,6 @@
                 portions = document.getElementById('m-portions').value;
                 document.querySelectorAll('#ingredientsList .ing-row').forEach(row => {
                     const nameInput = row.querySelector('input[type="text"]');
-                    const numInputs = row.querySelectorAll('input[type="number"]');
                     const unitElem = row.querySelector('.ing-unit');
                     const unit = unitElem ? unitElem.value : 'g';
                     const nutrientsJson = row.dataset.nutrients;
@@ -2584,14 +2642,16 @@
                     if (nameInput && nameInput.value) {
                         ings.push({ 
                             desc: nameInput.value, 
-                            qty: parseFloat(numInputs[0].value || 0),
+                            qty: parseFloat(row.querySelector('.ing-qty').value || 0),
                             unit: unit,
-                            cals: parseFloat(numInputs[1].value || 0),
-                            pro: parseFloat(numInputs[2].value || 0),
+                            cals: parseFloat(row.querySelector('.ing-cals').value || 0),
+                            pro: parseFloat(row.querySelector('.ing-pro').value || 0),
+                            carbs: parseFloat(row.querySelector('.ing-carbs').value || 0),
+                            fat: parseFloat(row.querySelector('.ing-fat').value || 0),
                             nutrients: nutrientsJson ? JSON.parse(nutrientsJson) : null
                         });
-                        totalCals += parseFloat(numInputs[1].value || 0);
-                        totalPro += parseFloat(numInputs[2].value || 0);
+                        totalCals += parseFloat(row.querySelector('.ing-cals').value || 0);
+                        totalPro += parseFloat(row.querySelector('.ing-pro').value || 0);
                     }
                 });
             }
@@ -2706,6 +2766,8 @@
             filteredMeals.forEach(m => {
                 const perPortion = (m.Calories / m.Portions).toFixed(0);
                 const proPerPortion = (m.Protein / m.Portions).toFixed(1);
+                const carbsPerPortion = (m.Carbs / m.Portions).toFixed(1);
+                const fatPerPortion = (m.Fat / m.Portions).toFixed(1);
                 
                 const mealCard = document.createElement('div');
                 mealCard.className = 'card meal-card';
@@ -2723,16 +2785,16 @@
 
                 const subtitle = m.isQuickFood 
                     ? `<div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85em; color:var(--sub); align-items: center;">
-                         <span>${m.Calories} cal | ${m.Protein || 0}g pro | ${m.Ingredients?.[0]?.qty || ''}${m.Ingredients?.[0]?.unit || ''}</span>
+                        <span>${m.Calories} cal | P ${m.Protein || 0}g | C ${m.Carbs || 0}g | F ${m.Fat || 0}g</span>
                        </div>`
                     : `<div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85em; color:var(--sub); align-items: center;">
-                         <span>${perPortion} cal | ${proPerPortion}g pro (per portion)</span>
+                        <span>${perPortion} cal | P ${proPerPortion}g | C ${carbsPerPortion}g | F ${fatPerPortion}g</span>
                          <span style="opacity:0.6;">${m.Portions} port.</span>
                        </div>`;
                 
                 // Add log button for quick foods
                 const logButton = m.isQuickFood 
-                    ? `<button onclick="logQuickFood('${m.MealName.replace(/'/g, "\\'")}', ${m.Calories}, ${m.Protein || 0})" style="background:var(--accent); border:none; color:white; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:0.8em;" title="Log Now"><i class="fas fa-plus"></i> Log</button>`
+                    ? `<button onclick="logQuickFood('${m.MealName.replace(/'/g, "\\'")}', ${m.Calories}, ${m.Protein || 0}, ${m.Carbs || 0}, ${m.Fat || 0})" style="background:var(--accent); border:none; color:white; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:0.8em;" title="Log Now"><i class="fas fa-plus"></i> Log</button>`
                     : '';
                 
                 mealCard.innerHTML = `
@@ -2775,6 +2837,8 @@
             if (meal.isQuickFood) {
                 document.getElementById('m-quickcals').value = meal.Calories;
                 document.getElementById('m-quickpro').value = meal.Protein || 0;
+                document.getElementById('m-quickcarbs').value = meal.Carbs || 0;
+                document.getElementById('m-quickfat').value = meal.Fat || 0;
                 lastScannedNutrients = meal.Ingredients?.[0]?.nutrients || null;
             } else {
                 document.getElementById('m-portions').value = meal.Portions || 1;
@@ -2785,7 +2849,7 @@
                     meal.Ingredients.forEach(ing => {
                         const ingName = ing.desc || ing.name || '';
                         const ingPro = ing.pro || ing.protein || 0;
-                        addIngredientLine(ingName, ing.qty || '', ing.cals || 0, ingPro, ing.unit || 'g', ing.nutrients);
+                        addIngredientLine(ingName, ing.qty || '', ing.cals || 0, ingPro, ing.carbs || 0, ing.fat || 0, ing.unit || 'g', ing.nutrients);
                     });
                 } else {
                     addIngredientLine();
@@ -2797,13 +2861,15 @@
             showToast('Loading ' + name + ' for editing', 'edit');
         }
 
-        async function logQuickFood(name, calories, protein) {
+        async function logQuickFood(name, calories, protein, carbs, fat) {
             const ukDate = getUKDateTime();
             const today = ukDate.date;
             const payload = {
                 type: 'FOOD',
                 value: parseFloat(calories),
                 protein: parseFloat(protein || 0),
+                carbs: parseFloat(carbs || 0),
+                fat: parseFloat(fat || 0),
                 note: name,
                 time: null,
                 date: today
@@ -2871,6 +2937,8 @@
 
                 document.getElementById('foodCals').value = Math.round(meal.Calories * ratio);
                 document.getElementById('foodPro').value = (meal.Protein * ratio).toFixed(1);
+                document.getElementById('foodCarbs').value = (meal.Carbs * ratio).toFixed(1);
+                document.getElementById('foodFat').value = (meal.Fat * ratio).toFixed(1);
                 document.getElementById('foodNote').value = portionsInput === 1 ? meal.MealName : `${meal.MealName} (${portionsInput}x)`;
                 
                 // Scale micronutrients
@@ -2899,7 +2967,7 @@
         async function submitData() {
             const type = document.getElementById('entryType').value;
             const selectedDate = document.getElementById('logDate').value;
-            let val, pro = 0, note = "", customTime = null;
+            let val, pro = 0, carbs = 0, fat = 0, note = "", customTime = null;
             
             // Log Time is now global
             customTime = document.getElementById('foodTime').value;
@@ -2908,6 +2976,8 @@
             if (type === 'FOOD') { 
                 val = document.getElementById('foodCals').value; 
                 pro = document.getElementById('foodPro').value; 
+                carbs = document.getElementById('foodCarbs').value;
+                fat = document.getElementById('foodFat').value;
                 const foodNote = document.getElementById('foodNote').value;
                 const qty = document.getElementById('foodQty').value;
                 const unit = document.getElementById('foodUnit').value;
@@ -2949,6 +3019,8 @@
                 type, 
                 value: parseFloat(val), 
                 protein: parseFloat(pro || 0), 
+                carbs: parseFloat(carbs || 0),
+                fat: parseFloat(fat || 0),
                 note, 
                 time: customTime,
                 date: selectedDate,
@@ -2956,7 +3028,12 @@
                 amountUnit: document.getElementById('foodUnit') ? document.getElementById('foodUnit').value : null,
                 nutrients: (() => {
                     if (!lastScannedNutrients) return null;
-                    if (!ratioLock || !ratioLock.micros) return lastScannedNutrients;
+                    if (!ratioLock || !ratioLock.micros) {
+                        const micros = { ...lastScannedNutrients };
+                        delete micros.carbs;
+                        delete micros.fat;
+                        return micros;
+                    }
                     
                     const qty = parseFloat(document.getElementById('foodQty').value) || 0;
                     const src = lastScannedNutrients.source || '';
@@ -2966,6 +3043,10 @@
                     
                     const scaled = { ...lastScannedNutrients };
                     for (const key in lastScannedNutrients) {
+                        if (key === 'carbs' || key === 'fat') {
+                            delete scaled[key];
+                            continue;
+                        }
                         if (typeof lastScannedNutrients[key] === 'number') {
                             scaled[key] = lastScannedNutrients[key] * scale;
                         }
@@ -3127,6 +3208,8 @@
                 Type: payload.type,
                 Value: payload.value,
                 Protein: payload.protein,
+                Carbs: payload.carbs,
+                Fat: payload.fat,
                 Note: payload.note,
                 Nutrients: payload.nutrients || null
             };
@@ -3299,6 +3382,8 @@
             // 2. Original selection logic (integrated)
             const cals = item.cals || 0;
             const pro = item.pro || 0;
+            const carbs = item.carbs || 0;
+            const fat = item.fat || 0;
             const nutrients = item.nutrients || null;
             const name = item.brand && !item.brand.includes('Generic') ? `${item.name} (${item.brand})` : item.name;
 
@@ -3306,6 +3391,8 @@
                 document.getElementById('foodNote').value = name;
                 document.getElementById('foodCals').value = Math.round(cals);
                 document.getElementById('foodPro').value = parseFloat(pro || 0).toFixed(1);
+                document.getElementById('foodCarbs').value = parseFloat(carbs).toFixed(1);
+                document.getElementById('foodFat').value = parseFloat(fat).toFixed(1);
                 lastScannedNutrients = nutrients;
                 
                 // Show/hide rich nutrients button
@@ -3320,6 +3407,8 @@
                 ratioLock = {
                     cal_per_unit: cals / baseQty,
                     pro_per_unit: pro / baseQty,
+                    carbs_per_unit: carbs / baseQty,
+                    fat_per_unit: fat / baseQty,
                     micros: {}
                 };
 
@@ -3346,6 +3435,8 @@
                         row.querySelector('.ing-name').value = name;
                         row.querySelector('.ing-cals').value = Math.round(cals);
                         row.querySelector('.ing-pro').value = parseFloat(pro || 0).toFixed(1);
+                        row.querySelector('.ing-carbs').value = parseFloat(carbs).toFixed(1);
+                        row.querySelector('.ing-fat').value = parseFloat(fat).toFixed(1);
                         row.dataset.nutrients = JSON.stringify(nutrients);
                         
                         // Set up ratio lock for this specific row
@@ -3355,6 +3446,8 @@
                         row.dataset.baseNutrients = JSON.stringify({
                             calories: cals,
                             protein: pro,
+                            carbs,
+                            fat,
                             micros: nutrients
                         });
 
@@ -3367,6 +3460,8 @@
                 document.getElementById('m-name').value = name;
                 document.getElementById('m-quickcals').value = Math.round(cals);
                 document.getElementById('m-quickpro').value = parseFloat(pro || 0).toFixed(1);
+                document.getElementById('m-quickcarbs').value = parseFloat(carbs).toFixed(1);
+                document.getElementById('m-quickfat').value = parseFloat(fat).toFixed(1);
                 lastScannedNutrients = nutrients;
                 
                 // Show/hide rich nutrients button for Quick Food form
@@ -3384,6 +3479,8 @@
                 ratioLock = {
                     cal_per_unit: cals / baseQty,
                     pro_per_unit: pro / baseQty,
+                    carbs_per_unit: carbs / baseQty,
+                    fat_per_unit: fat / baseQty,
                     micros: {}
                 };
                 if (nutrients) {
@@ -3450,11 +3547,11 @@
                     // OFF values are typically "per 100g"
                     const energyKcal = p.nutriments['energy-kcal_100g'] || p.nutriments['energy_100g'];
                     const protein100g = p.nutriments['proteins_100g'] || p.nutriments['protein_100g'] || 0;
+                    const carbs100g = p.nutriments['carbohydrates_100g'] || 0;
+                    const fat100g = p.nutriments['fat_100g'] || 0;
                     
                     // Store rich nutrient data
                     lastScannedNutrients = {
-                        fat: p.nutriments['fat_100g'] || 0,
-                        carbs: p.nutriments['carbohydrates_100g'] || 0,
                         sugar: p.nutriments['sugars_100g'] || 0,
                         fiber: p.nutriments['fiber_100g'] || 0,
                         sodium: (p.nutriments['sodium_100g'] || 0) * 1000,
@@ -3476,6 +3573,8 @@
                         ratioLock = {
                             cal_per_unit: energyKcal / 100,
                             pro_per_unit: protein100g / 100,
+                            carbs_per_unit: carbs100g / 100,
+                            fat_per_unit: fat100g / 100,
                             micros: {}
                         };
                         
@@ -3492,6 +3591,8 @@
                                 document.getElementById('m-name').value = name + brand;
                                 document.getElementById('m-quickcals').value = Math.round(energyKcal);
                                 document.getElementById('m-quickpro').value = parseFloat(protein100g).toFixed(1);
+                                document.getElementById('m-quickcarbs').value = parseFloat(carbs100g).toFixed(1);
+                                document.getElementById('m-quickfat').value = parseFloat(fat100g).toFixed(1);
                                 document.getElementById('m-quickqty').value = "100";
                                 document.getElementById('m-quickunit').value = "g";
 
@@ -3500,7 +3601,7 @@
                                 if (qnBtn) qnBtn.style.display = 'flex';
                             } else {
                                 // Add to ingredients list
-                                const ingRow = addIngredientLine(name + brand, "100", Math.round(energyKcal), Math.round(protein100g), 'g', lastScannedNutrients);
+                                addIngredientLine(name + brand, "100", Math.round(energyKcal), protein100g.toFixed(1), carbs100g.toFixed(1), fat100g.toFixed(1), 'g', lastScannedNutrients);
                                 // Set up ratio lock on the row directly
                                 const lastRow = document.querySelector('#ingredientsList .ing-row:last-child');
                                 if (lastRow) {
@@ -3508,6 +3609,8 @@
                                     lastRow.dataset.baseNutrients = JSON.stringify({
                                         calories: energyKcal,
                                         protein: protein100g,
+                                        carbs: carbs100g,
+                                        fat: fat100g,
                                         micros: lastScannedNutrients
                                     });
                                 }
@@ -3517,7 +3620,9 @@
                             // Default to the Log tab Quick Food fields
                             document.getElementById('foodNote').value = name + brand;
                             document.getElementById('foodCals').value = Math.round(energyKcal);
-                            document.getElementById('foodPro').value = Math.round(protein100g);
+                            document.getElementById('foodPro').value = parseFloat(protein100g).toFixed(1);
+                            document.getElementById('foodCarbs').value = parseFloat(carbs100g).toFixed(1);
+                            document.getElementById('foodFat').value = parseFloat(fat100g).toFixed(1);
                             document.getElementById('foodQty').value = "100";
                             document.getElementById('foodUnit').value = "g";
 
@@ -3589,15 +3694,20 @@
             const uniqueDays = [...new Set(items.map(i => i.PK))].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
             const dayRollup = {};
             uniqueDays.forEach(d => {
-                let dIn = 0, dOut = baseline, dPro = 0, dW = "--", dGym = 0, dSleep = 0;
+                let dIn = 0, dOut = baseline, dPro = 0, dCarbs = 0, dFat = 0, dW = "--", dGym = 0, dSleep = 0;
                 items.filter(i => i.PK === d).forEach(i => {
-                    if (i.Type === 'FOOD') { dIn += i.Value; dPro += (i.Protein || 0); }
+                    if (i.Type === 'FOOD') {
+                        dIn += i.Value;
+                        dPro += (i.Protein || 0);
+                        dCarbs += (i.Carbs || 0);
+                        dFat += (i.Fat || 0);
+                    }
                     if (i.Type === 'ACTIVE') dOut += i.Value;
                     if (i.Type === 'WEIGHT') dW = i.Value;
                     if (i.Type === 'GYM') dGym = 1;
                     if (i.Type === 'SLEEP') dSleep = i.Value;
                 });
-                dayRollup[d] = { in: dIn, out: dOut, net: dIn - dOut, pro: dPro, weight: dW, gym: dGym, sleep: dSleep };
+                dayRollup[d] = { in: dIn, out: dOut, net: dIn - dOut, pro: dPro, carbs: dCarbs, fat: dFat, weight: dW, gym: dGym, sleep: dSleep };
             });
             const t = dayRollup[today] || { in:0, out:baseline, net:-baseline, pro:0, weight:"--", gym:0, sleep:0 };
             document.getElementById('d-in').innerText = t.in.toFixed(0);
@@ -3676,6 +3786,56 @@
 
             // Render Micronutrient Averages
             renderMicroDashboard(items);
+
+            // Current-week average macro split (Monday through today), weighted by calories.
+            const todayDate = new Date(`${today}T12:00:00Z`);
+            const daysSinceMonday = todayDate.getUTCDay() === 0 ? 6 : todayDate.getUTCDay() - 1;
+            const mondayDate = new Date(todayDate.getTime() - (daysSinceMonday * 86400000));
+            const monday = mondayDate.toISOString().split('T')[0];
+            const elapsedDays = daysSinceMonday + 1;
+            const currentWeekFoods = items.filter(i => i.Type === 'FOOD' && i.PK >= monday && i.PK <= today);
+            const weeklyMacros = currentWeekFoods.reduce((totals, item) => {
+                totals.protein += item.Protein || 0;
+                totals.carbs += item.Carbs || 0;
+                totals.fat += item.Fat || 0;
+                return totals;
+            }, { protein: 0, carbs: 0, fat: 0 });
+            const averageGrams = [
+                weeklyMacros.protein / elapsedDays,
+                weeklyMacros.carbs / elapsedDays,
+                weeklyMacros.fat / elapsedDays
+            ];
+            const averageCalories = [averageGrams[0] * 4, averageGrams[1] * 4, averageGrams[2] * 9];
+
+            if (macroChartInstance) macroChartInstance.destroy();
+            macroChartInstance = new Chart(document.getElementById('macroChart'), {
+                type: 'pie',
+                data: {
+                    labels: ['Protein', 'Carbs', 'Fat'],
+                    datasets: [{
+                        data: averageCalories,
+                        backgroundColor: ['#00adb5', '#f2c14e', '#ef6f6c'],
+                        borderColor: '#1e1e1e',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: { display: true, text: 'Current Week Average Macro Ratio', color: '#e0e0e0' },
+                        legend: { position: 'bottom', labels: { color: '#aaa' } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((sum, value) => sum + value, 0);
+                                    const percentage = total > 0 ? ((context.raw / total) * 100).toFixed(0) : 0;
+                                    return `${context.label}: ${percentage}% (${averageGrams[context.dataIndex].toFixed(1)}g/day)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             const rawBody = document.getElementById('rawTable'); rawBody.innerHTML = '';
             uniqueDays.forEach(d => {

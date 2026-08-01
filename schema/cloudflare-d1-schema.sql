@@ -28,6 +28,8 @@ CREATE TABLE food_logs (
   food_name TEXT NOT NULL,
   calories INTEGER NOT NULL,
   protein INTEGER NOT NULL DEFAULT 0,
+  carbs REAL NOT NULL DEFAULT 0,
+  fat REAL NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
@@ -74,6 +76,8 @@ CREATE TABLE saved_meals (
   meal_name TEXT NOT NULL,
   calories INTEGER NOT NULL,
   protein INTEGER NOT NULL DEFAULT 0,
+  carbs REAL NOT NULL DEFAULT 0,
+  fat REAL NOT NULL DEFAULT 0,
   portions INTEGER DEFAULT 1,
   is_quick_food INTEGER DEFAULT 0,
   ingredients TEXT,
