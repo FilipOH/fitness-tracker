@@ -66,7 +66,7 @@
         .nav-item svg { width: 24px; height: 24px; margin-bottom: 3px; fill: currentColor; }
         .nav-item span { display: block; }
         h1, h2 { margin-bottom: 10px; }
-        .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
         .card { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; box-sizing: border-box; overflow: hidden; }
         .card.stat { text-align: center; }
         .card.stat h2 { margin: 0; font-size: 0.7em; color: var(--sub); text-transform: uppercase; }
@@ -76,16 +76,22 @@
         input, select { background: #333; border: 1px solid #444; color: white; padding: 12px; border-radius: 8px; font-size: 16px; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 44px; display: block; margin: 0; min-width: 0; }
         input[type="date"], input[type="time"] { 
             padding: 10px; 
-            /* iOS Safari fix: Force date/time inputs to respect container width */
             width: 100% !important;
             max-width: 100% !important;
             min-width: 0 !important;
-            flex: 1 1 auto;
-            display: block !important; /* Force block display on iOS */
+            inline-size: 100% !important;
+            min-inline-size: 0 !important;
+            display: block !important;
             box-sizing: border-box !important;
-            -webkit-appearance: listbox; /* Keeps native picker but fixes width */
-            appearance: listbox; /* Standard property for compatibility */
-            -webkit-text-fill-color: white !important; /* iOS text color fix */
+            -webkit-text-fill-color: white !important;
+        }
+        .date-time-grid > .form-row { min-width: 0; overflow: visible; }
+        @supports (-webkit-touch-callout: none) {
+            input[type="date"], input[type="time"] {
+                -webkit-appearance: none;
+                appearance: none;
+                text-align: center;
+            }
         }
         input[type="checkbox"] { min-height: auto; width: auto; display: inline-block; } /* Reset for checkboxes */
         button.submit { background: var(--accent); border: none; color: white; padding: 15px; border-radius: 8px; font-size: 1em; font-weight: bold; width: 100%; }
@@ -274,7 +280,7 @@
         <h1 style="font-size: 1.4em; color: var(--accent);">Log Entry</h1>
         <div class="card">
             <!-- Row 1: Date & Time -->
-            <div class="grid" style="margin-bottom:10px;">
+            <div class="grid date-time-grid" style="margin-bottom:10px;">
                 <div class="form-row" style="margin-bottom:0;">
                     <label>Date</label>
                     <input type="date" id="logDate">
@@ -513,7 +519,6 @@
                             </button>
                         </div>
                     </div>
-                </div>
                 </div>
 
                 <div id="ingredientsList" style="margin-top:10px;">
