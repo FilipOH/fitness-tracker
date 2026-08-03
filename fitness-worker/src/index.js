@@ -245,23 +245,32 @@ async function handleApiRequest(request, env) {
         'finest', 'taste the difference', 'ocado', 'iceland', 'waitrose & partners'
       ];
 
-      // Normalize query for internal use and OFF search (UK brand bias)
-      let offQuery = query.toLowerCase();
-      // Handle the common "soymilk" string without boundaries too, as it's often used as one word
-      if (offQuery.includes('soymilk')) {
-          offQuery = offQuery.replace(/soymilk/g, 'soya milk');
-      }
-      
-      Object.entries(SYNONYMS).forEach(([us, uk]) => {
-        const regex = new RegExp(`\\b${us}\\b`, 'g');
-        if (regex.test(offQuery)) {
-          offQuery = offQuery.replace(regex, uk);
-        }
+      // Normalize query for internal use and OFF search.
+      const offQueryOriginal = query.toLowerCase().trim().replace(/\s+/g, ' ');
+      let offQuery = offQueryOriginal;
+
+      // Detect UK brands from the original query for branded search behavior.
+      const detectedBrand = UK_RETAILERS.find(brand => {
+        const regex = new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        return regex.test(offQueryOriginal);
       });
 
-      const offParams = new URLSearchParams({
+      // For non-branded searches, normalize US/UK synonyms to improve generic food recall.
+      if (!detectedBrand) {
+        if (offQuery.includes('soymilk')) {
+          offQuery = offQuery.replace(/soymilk/g, 'soya milk');
+        }
+        Object.entries(SYNONYMS).forEach(([us, uk]) => {
+          const regex = new RegExp(`\\b${us}\\b`, 'g');
+          if (regex.test(offQuery)) {
+            offQuery = offQuery.replace(regex, uk);
+          }
+        });
+      }
+
+      const offParamsUk = new URLSearchParams({
         search_terms: offQuery,
-        page_size: '40',
+        page_size: '50',
         sort_by: 'unique_scans_n',
         lc: 'en',
         cc: 'uk',
@@ -269,25 +278,30 @@ async function handleApiRequest(request, env) {
         json: '1'
       });
 
-      let offUrl = `https://world.openfoodfacts.org/cgi/search.pl?${offParams.toString()}`;
-      let brandSearchUrl = null;
-
-      // Detect UK brands for "relaxed" search fallback
-      const detectedBrand = UK_RETAILERS.find(brand => {
-        const regex = new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        return regex.test(offQuery);
+      // Global OFF fallback (no country pin) improves recall for niche branded products.
+      const offParamsGlobal = new URLSearchParams({
+        search_terms: offQueryOriginal,
+        page_size: '40',
+        sort_by: 'unique_scans_n',
+        lc: 'en',
+        action: 'process',
+        json: '1'
       });
+
+      let offUrl = `https://world.openfoodfacts.org/cgi/search.pl?${offParamsUk.toString()}`;
+      let offGlobalUrl = `https://world.openfoodfacts.org/cgi/search.pl?${offParamsGlobal.toString()}`;
+      let brandSearchUrl = null;
 
       if (detectedBrand) {
         // Create a relaxed search: remove brand from terms and use it as a brand filter
-        const relaxedTerms = offQuery.replace(detectedBrand, '').trim().replace(/\s+/g, ' ');
+        const relaxedTerms = offQueryOriginal.replace(detectedBrand, '').trim().replace(/\s+/g, ' ');
         if (relaxedTerms) {
           const brandParams = new URLSearchParams({
             search_terms: relaxedTerms,
             tagtype_0: 'brands',
             tag_contains_0: 'contains',
             tag_0: detectedBrand,
-            page_size: '40',
+            page_size: '50',
             sort_by: 'unique_scans_n',
             lc: 'en',
             cc: 'uk',
@@ -311,9 +325,10 @@ async function handleApiRequest(request, env) {
       const w3 = searchWords[2] ? `%${searchWords[2]}%` : '%UNUSED_TOKEN%';
 
       // Parallel fetch + D1 checks (History, Meals, CoFID, Weights)
-      const [usdaRes, offResRaw, brandOffResRaw, cofidResults, historyResults, mealsResults, weightsRows] = await Promise.all([
+      const [usdaRes, offResRaw, offGlobalResRaw, brandOffResRaw, cofidResults, historyResults, mealsResults, weightsRows] = await Promise.all([
         fetchWithRetry(usdaUrl, 2),
         fetchWithRetry(offUrl, 3),
+        fetchWithRetry(offGlobalUrl, 2),
         brandSearchUrl ? fetchWithRetry(brandSearchUrl, 3) : Promise.resolve(null),
         env.DB.prepare(`
           SELECT *, 
@@ -346,10 +361,19 @@ async function handleApiRequest(request, env) {
         env.DB.prepare('SELECT * FROM search_weights').all()
       ]);
 
-      const weights = { 
-        exact_match: 50000, starts_with: 20000, cofid_bonus: 100000, 
-        generic_bonus: 40000, uk_brand_bonus: 80000, history_bonus: 150000, 
-        meal_bonus: 120000, shortness_bonus: 5000 
+      const weights = {
+        exact_match: 45000,
+        starts_with: 18000,
+        all_words_bonus: 25000,
+        cofid_bonus: 24000,
+        generic_bonus: 10000,
+        uk_brand_bonus: 20000,
+        history_bonus: 50000,
+        meal_bonus: 40000,
+        brand_query_match_bonus: 45000,
+        generic_when_brand_penalty: 18000,
+        off_brand_miss_penalty: 12000,
+        shortness_bonus: 4000
       };
       weightsRows.results?.forEach(r => weights[r.feature_name] = r.weight_value);
 
@@ -419,9 +443,12 @@ async function handleApiRequest(request, env) {
       const processOffResults = (offData) => {
         (offData.products || []).filter(p => p.product_name).forEach(p => {
           const n = p.nutriments || {};
+          const kcalRaw = Number(n['energy-kcal_100g'] || n['energy-kcal'] || 0);
+          const kjRaw = Number(n['energy_100g'] || n['energy-kj_100g'] || n['energy-kj'] || 0);
+          const calories = kcalRaw > 0 ? kcalRaw : (kjRaw > 0 ? (kjRaw / 4.184) : 0);
           normalizedResults.push({
-            name: p.product_name, brand: p.brands || 'Store Brand', cals: Math.round(n['energy-kcal_100g'] || 0),
-            pro: n.proteins_100g || 0, carbs: n.carbohydrates_100g || 0, fat: n.fat_100g || 0, source: 'OFF',
+            name: p.product_name, brand: p.brands || 'Store Brand', cals: Math.round(calories || 0),
+            pro: Number(n.proteins_100g || 0), carbs: Number(n.carbohydrates_100g || 0), fat: Number(n.fat_100g || 0), source: 'OFF',
             nutrients: { 
               sugar: n.sugars_100g || 0, fiber: n.fiber_100g || 0,
               sodium: (n.sodium_100g || 0) * 1000, 
@@ -444,6 +471,9 @@ async function handleApiRequest(request, env) {
       if (offResRaw && offResRaw.ok) {
         processOffResults(await offResRaw.json());
       }
+      if (offGlobalResRaw && offGlobalResRaw.ok) {
+        processOffResults(await offGlobalResRaw.json());
+      }
       if (brandOffResRaw && brandOffResRaw.ok) {
         processOffResults(await brandOffResRaw.json());
       }
@@ -454,10 +484,12 @@ async function handleApiRequest(request, env) {
         let score = 0;
         const n = p.name.toLowerCase();
         const b = (p.brand || '').toLowerCase();
-        const qClean = q.toLowerCase();
+        const qClean = q.toLowerCase().trim().replace(/\s+/g, ' ');
         // Remove punctuation from query words for comparison
         const qWords = qClean.split(/[^a-z0-9]/).filter(x => x.length > 0);
         const nWords = n.split(/[^a-z0-9]/).filter(x => x.length > 0);
+        const brandSpecificQuery = UK_RETAILERS.some(r => qClean.includes(r));
+        const explicitBrandMatch = UK_RETAILERS.some(r => qClean.includes(r) && (b.includes(r) || n.includes(r)));
         
         let matchCount = 0;
         let allWordsMatch = true;
@@ -485,6 +517,7 @@ async function handleApiRequest(request, env) {
         if (n === qClean) score += (w.exact_match || 50000);
         if (n.startsWith(qClean)) score += (w.starts_with || 20000);
         if (allWordsMatch && qWords.length > 1) score += (w.all_words_bonus || 30000);
+        if (explicitBrandMatch) score += (w.brand_query_match_bonus || 45000);
         
         if (p.source === 'CoFID') score += (w.cofid_bonus || 40000);
         if (p.source === 'History') score += (w.history_bonus || 60000);
@@ -499,6 +532,14 @@ async function handleApiRequest(request, env) {
             const coverage = matchCount / qWords.length;
             score += (coverage * 10000);
         }
+
+        // If user asked for a specific retailer/brand, generic sources should rank lower.
+        if (brandSpecificQuery && (p.source === 'USDA' || p.source === 'CoFID')) {
+          score -= (w.generic_when_brand_penalty || 18000);
+        }
+        if (brandSpecificQuery && p.source === 'OFF' && !explicitBrandMatch) {
+          score -= (w.off_brand_miss_penalty || 12000);
+        }
         
         score += (100 / (n.length + 1)) * (w.shortness_bonus || 2000);
 
@@ -507,23 +548,42 @@ async function handleApiRequest(request, env) {
         return score;
       }
 
-      // Process and Group Top 10 per source
-      const scored = normalizedResults.map(p => ({ ...p, score: calculateProductScore(p, query, weights) }));
-      const grouped = {};
-      scored.forEach(p => {
-        if (!grouped[p.source]) grouped[p.source] = [];
-        grouped[p.source].push(p);
+      // Dedupe merged candidates before scoring.
+      const dedupedResults = [];
+      const seenKeys = new Set();
+      normalizedResults.forEach(p => {
+        const key = `${(p.name || '').toLowerCase()}|${(p.brand || '').toLowerCase()}|${p.source}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          dedupedResults.push(p);
+        }
       });
 
+      const scored = dedupedResults
+        .map(p => ({ ...p, score: calculateProductScore(p, query, weights) }))
+        .filter(p => p.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      // Global ranking with source caps preserves variety without forcing weak results.
+      const sourceCaps = { History: 8, 'Saved Meal': 6, CoFID: 12, USDA: 12, OFF: 20 };
+      const sourceCounts = {};
       const finalProducts = [];
-      Object.keys(grouped).forEach(source => {
-        const top10 = grouped[source].sort((a,b) => b.score - a.score).slice(0, 10);
-        finalProducts.push(...top10);
-      });
+      const maxResults = 40;
 
-      return jsonResponse({ 
-        products: finalProducts.sort((a,b) => b.score - a.score),
-        weights_version: 'v1.ml-ready-top10'
+      for (const item of scored) {
+        const cap = sourceCaps[item.source] || 10;
+        const used = sourceCounts[item.source] || 0;
+        if (used >= cap) continue;
+        finalProducts.push(item);
+        sourceCounts[item.source] = used + 1;
+        if (finalProducts.length >= maxResults) break;
+      }
+
+      const rankedProducts = finalProducts.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+      return jsonResponse({
+        products: rankedProducts,
+        weights_version: 'v2.global-capped-ranked'
       });
 
     } catch (e) {

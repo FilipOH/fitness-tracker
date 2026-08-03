@@ -552,6 +552,12 @@
             </div>
             
             <div id="foodFields" style="display:none;">
+                <div class="form-row" style="margin-bottom:10px;">
+                    <button onclick="startScanner('quick')" style="background:#444; color:white; border:1px solid #555; height:44px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:0.85em; width:100%;">
+                        <i class="fas fa-barcode"></i>
+                        <span>Scan Barcode</span>
+                    </button>
+                </div>
                 <div class="form-row">
                     <label>Amount</label>
                     <div style="position:relative; display:flex;">
@@ -814,6 +820,38 @@
         let isAutoCalculating = false; // Flag to prevent recursion/toast spam
         let ratioLock = null; // Store base ratios for auto-calc
         let currentMealMicros = null; // Summed micros for multi-ingredient meals
+
+        function disableGlobalAutoScalingWithWarning(inputEl) {
+            if (!ratioLock) return true;
+            const confirmed = confirm('Making a change to this field will cancel auto-scaling and micronutrient scaling. Continue?');
+            if (!confirmed) {
+                if (inputEl && inputEl.dataset && inputEl.dataset.prevValue !== undefined) {
+                    inputEl.value = inputEl.dataset.prevValue;
+                }
+                return false;
+            }
+
+            ratioLock = null;
+            lastScannedNutrients = null;
+            showToast('Manual override: Auto-calc off', 'info');
+            return true;
+        }
+
+        function disableRowAutoScalingWithWarning(rowEl, inputEl) {
+            if (!rowEl || !rowEl.dataset.baseNutrients) return true;
+            const confirmed = confirm('Making a change to this field will cancel auto-scaling and micronutrient scaling. Continue?');
+            if (!confirmed) {
+                if (inputEl && inputEl.dataset && inputEl.dataset.prevValue !== undefined) {
+                    inputEl.value = inputEl.dataset.prevValue;
+                }
+                return false;
+            }
+
+            rowEl.dataset.baseNutrients = ''; // Clear lock
+            rowEl.dataset.nutrients = ''; // Clear micros as they are no longer in sync
+            showToast('Manual override: Auto-calc off', 'info');
+            return true;
+        }
 
         // ==================== OFFLINE PWA SUPPORT ====================
         
@@ -2333,13 +2371,24 @@
                 // If the user manually edits calories/macros, break the ratio lock.
                 [pair.cal, pair.pro, pair.carbs, pair.fat].forEach(el => {
                     if (!el) return;
+
+                    // Keep previous value so canceling the warning restores the field.
+                    el.addEventListener('focus', () => {
+                        el.dataset.prevValue = el.value;
+                    });
+
                     el.addEventListener('input', () => {
                         if (isAutoCalculating) return;
-                        if (ratioLock) {
-                            ratioLock = null;
-                            lastScannedNutrients = null;
-                            showToast('Manual override: Auto-calc off', 'info');
+                        if (!ratioLock) {
+                            el.dataset.prevValue = el.value;
+                            return;
                         }
+
+                        if (!disableGlobalAutoScalingWithWarning(el)) {
+                            return;
+                        }
+
+                        el.dataset.prevValue = el.value;
                     });
                 });
 
@@ -2519,9 +2568,16 @@
             
             // Break lock if calories/macros are edited manually.
             [calInp, proInp, carbsInp, fatInp].forEach(el => {
+                el.addEventListener('focus', () => {
+                    el.dataset.prevValue = el.value;
+                });
+
                 el.addEventListener('input', () => {
-                    div.dataset.baseNutrients = ''; // Clear lock
-                    div.dataset.nutrients = ''; // Clear micros as they are no longer in sync
+                    if (!disableRowAutoScalingWithWarning(div, el)) {
+                        return;
+                    }
+
+                    el.dataset.prevValue = el.value;
                     if (typeof updateMealTotals === 'function') updateMealTotals();
                 });
             });
@@ -3367,7 +3423,7 @@
             const isExt = s.includes('OFF') || s.includes('USDA') || s.includes('CoFID') || s.includes('UK') || s.includes('Open Food Facts') || s.includes('Foundation');
 
             div.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="handleMLSelect(${JSON.stringify(p).replace(/"/g, '&quot;')}, ${rank}, '${originalQuery.replace(/'/g, "\\'")}')">
+                <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="handleMLSelect(${JSON.stringify(p).replace(/"/g, '&quot;')}, ${p.rank || rank}, '${originalQuery.replace(/'/g, "\\'")}')">
                     <div style="flex: 1; padding-right: 15px;">
                         <span style="font-weight: bold; font-size: 0.9em; display: block; color: white;">${displayName}</span>
                         <span style="font-size: 0.7em; color: var(--sub);">${p.source} Data</span>
@@ -3520,8 +3576,10 @@
 
         // ==================== BARCODE SCANNER LOGIC ====================
         let html5QrCode = null;
+        let activeScannerContext = 'auto';
 
-        async function startScanner() {
+        async function startScanner(context = 'auto') {
+            activeScannerContext = context;
             document.getElementById('scannerOverlay').style.display = 'flex';
             html5QrCode = new Html5Qrcode("scannerContainer");
             
@@ -3554,6 +3612,7 @@
 
         async function onScanSuccess(decodedText, decodedResult) {
             console.log(`Scan success: ${decodedText}`);
+            const scannerContext = activeScannerContext || 'auto';
             stopScanner();
             showLoading();
             
@@ -3609,37 +3668,39 @@
                             }
                         }
 
-                        // Route scan results to Meals form only when Meals tab is actually active.
-                        if (document.getElementById('mealsTab').classList.contains('active')) {
-                            if (currentMealType === 'food') {
-                                document.getElementById('m-name').value = name + brand;
-                                document.getElementById('m-quickcals').value = Math.round(energyKcal);
-                                document.getElementById('m-quickpro').value = parseFloat(protein100g).toFixed(1);
-                                document.getElementById('m-quickcarbs').value = parseFloat(carbs100g).toFixed(1);
-                                document.getElementById('m-quickfat').value = parseFloat(fat100g).toFixed(1);
-                                document.getElementById('m-quickqty').value = "100";
-                                document.getElementById('m-quickunit').value = "g";
+                        const isMealsTabActive = document.getElementById('mealsTab').classList.contains('active');
+                        const shouldRouteToQuick = scannerContext === 'quick' || (scannerContext === 'auto' && isMealsTabActive && currentMealType === 'food');
+                        const shouldRouteToMeal = scannerContext === 'meal' || (scannerContext === 'auto' && isMealsTabActive && currentMealType !== 'food');
 
-                                // Show rich nutrients button for Quick Food form
-                                const qnBtn = document.getElementById('viewQuickNutrientsBtn');
-                                if (qnBtn) qnBtn.style.display = 'flex';
-                            } else {
-                                // Add to ingredients list
-                                addIngredientLine(name + brand, "100", Math.round(energyKcal), protein100g.toFixed(1), carbs100g.toFixed(1), fat100g.toFixed(1), 'g', lastScannedNutrients);
-                                // Set up ratio lock on the row directly
-                                const lastRow = document.querySelector('#ingredientsList .ing-row:last-child');
-                                if (lastRow) {
-                                    lastRow.dataset.baseQty = 100;
-                                    lastRow.dataset.baseNutrients = JSON.stringify({
-                                        calories: energyKcal,
-                                        protein: protein100g,
-                                        carbs: carbs100g,
-                                        fat: fat100g,
-                                        micros: lastScannedNutrients
-                                    });
-                                }
-                                if (typeof updateMealTotals === 'function') updateMealTotals();
+                        // Route based on scanner context so Quick Food scan always targets Quick Food fields.
+                        if (shouldRouteToQuick) {
+                            document.getElementById('m-name').value = name + brand;
+                            document.getElementById('m-quickcals').value = Math.round(energyKcal);
+                            document.getElementById('m-quickpro').value = parseFloat(protein100g).toFixed(1);
+                            document.getElementById('m-quickcarbs').value = parseFloat(carbs100g).toFixed(1);
+                            document.getElementById('m-quickfat').value = parseFloat(fat100g).toFixed(1);
+                            document.getElementById('m-quickqty').value = "100";
+                            document.getElementById('m-quickunit').value = "g";
+
+                            // Show rich nutrients button for Quick Food form
+                            const qnBtn = document.getElementById('viewQuickNutrientsBtn');
+                            if (qnBtn) qnBtn.style.display = 'flex';
+                        } else if (shouldRouteToMeal) {
+                            // Add to ingredients list
+                            addIngredientLine(name + brand, "100", Math.round(energyKcal), protein100g.toFixed(1), carbs100g.toFixed(1), fat100g.toFixed(1), 'g', lastScannedNutrients);
+                            // Set up ratio lock on the row directly
+                            const lastRow = document.querySelector('#ingredientsList .ing-row:last-child');
+                            if (lastRow) {
+                                lastRow.dataset.baseQty = 100;
+                                lastRow.dataset.baseNutrients = JSON.stringify({
+                                    calories: energyKcal,
+                                    protein: protein100g,
+                                    carbs: carbs100g,
+                                    fat: fat100g,
+                                    micros: lastScannedNutrients
+                                });
                             }
+                            if (typeof updateMealTotals === 'function') updateMealTotals();
                         } else {
                             // Default to the Log tab Quick Food fields
                             document.getElementById('foodNote').value = name + brand;
@@ -3671,6 +3732,7 @@
                 console.error("OFF Lookup error:", e);
                 showToast("Error looking up product", "exclamation-triangle");
             } finally {
+                activeScannerContext = 'auto';
                 hideLoading();
             }
         }
