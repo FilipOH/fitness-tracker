@@ -3585,9 +3585,18 @@
             
             const config = { fps: 10, qrbox: { width: 250, height: 150 } };
             
+            // Request macro/close-up focus mode for faster barcode scanning
+            const cameraConstraints = {
+                facingMode: "environment",
+                advanced: [
+                    { focusMode: "continuous" },
+                    { focusDistance: { ideal: 0.1, max: 0.3 } }
+                ]
+            };
+            
             try {
                 await html5QrCode.start(
-                    { facingMode: "environment" }, 
+                    cameraConstraints, 
                     config, 
                     onScanSuccess
                 );
