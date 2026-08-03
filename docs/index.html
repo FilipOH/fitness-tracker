@@ -193,6 +193,18 @@
             border-color: var(--accent);
             background: #2a2a2a;
         }
+
+        /* Keep unit text centered across browsers, including iOS Safari. */
+        #foodUnit,
+        #m-quickunit,
+        .ing-unit {
+            text-align: center !important;
+            text-align-last: center !important;
+            -moz-text-align-last: center !important;
+            text-indent: 0 !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+        }
     </style>
 </head>
 <body>
@@ -606,7 +618,7 @@
                 <button onclick="changeLogsPage(1)" style="background:#334; color:white; border:none; padding:8px 15px; border-radius:5px;">Next</button>
             </div>
             <div class="card" style="padding:5px; overflow-x:auto;">
-                <table style="min-width:500px;"><thead><tr><th>Date/Time</th><th>Type</th><th>Cals</th><th>Prot</th><th>Note</th><th style="width:40px;"></th></tr></thead><tbody id="logsTable"></tbody></table>
+                <table style="min-width:500px;"><thead><tr><th>Date/Time</th><th>Cals</th><th>Prot</th><th>Carb</th><th>Fat</th><th>Note</th><th style="width:40px;"></th></tr></thead><tbody id="logsTable"></tbody></table>
             </div>
         </div>
     </div>
@@ -698,6 +710,22 @@
             'potassium': { label: 'Potassium', goal: 3400, unit: 'mg' },
             'zinc': { label: 'Zinc', goal: 11, unit: 'mg' },
             'sodium': { label: 'Sodium (Max)', goal: 2300, unit: 'mg', max: true }
+        };
+
+        const macroPercentLegendPlugin = {
+            id: 'macroPercentLegendPlugin',
+            beforeInit(chart) {
+                chart._macroPercents = [];
+            },
+            afterUpdate(chart) {
+                const dataset = chart.data.datasets?.[0];
+                if (!dataset || !Array.isArray(dataset.data)) {
+                    chart._macroPercents = [];
+                    return;
+                }
+                const total = dataset.data.reduce((sum, value) => sum + (Number(value) || 0), 0);
+                chart._macroPercents = dataset.data.map(value => total > 0 ? Math.round(((Number(value) || 0) / total) * 100) : 0);
+            }
         };
 
         function calculateMicroAverages(items) {
@@ -1163,11 +1191,17 @@
             }
         }
 
-        // Auth token management (24h expiry)
-        function generateAuthToken() {
+        // Auth token management (90d expiry if device trusted, 24h otherwise)
+        async function generateAuthToken(isTrustedOverride = null) {
+            let isTrusted = isTrustedOverride;
+            if (isTrusted === null) {
+                isTrusted = await isDeviceTrusted();
+            }
+            const expiryMs = isTrusted ? (90 * 24 * 60 * 60 * 1000) : (24 * 60 * 60 * 1000); // 90 days vs 24 hours
             const token = {
                 value: generateUUID(),
-                expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24 hours
+                expiresAt: Date.now() + expiryMs,
+                isTrustedDevice: isTrusted
             };
             localStorage.setItem('cal_auth_token', JSON.stringify(token));
             return token;
@@ -1493,16 +1527,17 @@
         // Complete trust flow and grant access
         async function completeTrustFlow() {
             const trustCheckbox = document.getElementById('trustDeviceCheck');
+            let isTrusted = false;
             
             // If user wants to trust device, request device token
             if (trustCheckbox.checked) {
-                await trustDevice();
+                isTrusted = await trustDevice();
             }
             
             // Grant access
             document.getElementById('authOverlay').style.display = 'none';
             document.getElementById('app').classList.add('authenticated');
-            generateAuthToken();
+            await generateAuthToken(isTrusted);
             loadMeals();
             fetchGoals();
             
@@ -1539,7 +1574,7 @@
                 // Biometric auth successful - grant access
                 document.getElementById('authOverlay').style.display = 'none';
                 document.getElementById('app').classList.add('authenticated');
-                generateAuthToken();
+                await generateAuthToken(true);
                 loadMeals();
                 fetchGoals();
                 
@@ -1862,7 +1897,7 @@
                         // Trusted device - grant access immediately (no MFA needed)
                         document.getElementById('authOverlay').style.display = 'none';
                         document.getElementById('app').classList.add('authenticated');
-                        generateAuthToken();
+                        await generateAuthToken(true);
                         loadMeals();
                         fetchGoals();
                         
@@ -1933,7 +1968,7 @@
                                 // Biometric auth successful
                                 document.getElementById('authOverlay').style.display = 'none';
                                 document.getElementById('app').classList.add('authenticated');
-                                generateAuthToken();
+                                await generateAuthToken(true);
                                 loadMeals();
                                 fetchGoals();
                                 
@@ -2032,7 +2067,8 @@
         }
 
         function changeLogsPage(dir) {
-            const maxPage = Math.ceil(allRawItems.length / logPageSize);
+            const foodItems = allRawItems.filter(i => i.Type === 'FOOD');
+            const maxPage = Math.max(1, Math.ceil(foodItems.length / logPageSize));
             logPage += dir;
             if (logPage < 1) logPage = 1;
             if (logPage > maxPage) logPage = maxPage;
@@ -2046,14 +2082,19 @@
         function renderDetailedLogs() {
             const start = (logPage - 1) * logPageSize;
             const end = start + logPageSize;
-            // Sort by Date then SK (time) descending
-            const sorted = [...allRawItems].sort((a,b) => {
+            // Detailed logs are FOOD-only; everything else is already represented in daily summary.
+            const sorted = allRawItems
+                .filter(i => i.Type === 'FOOD')
+                .sort((a,b) => {
                 const pkA = a.PK || '';
                 const pkB = b.PK || '';
                 const skA = a.SK || '';
                 const skB = b.SK || '';
                 return (pkB + skB).localeCompare(pkA + skA);
             });
+
+            const maxPage = Math.max(1, Math.ceil(sorted.length / logPageSize));
+            if (logPage > maxPage) logPage = maxPage;
             const pageItems = sorted.slice(start, end);
             
             const tbody = document.getElementById('logsTable');
@@ -2062,36 +2103,19 @@
                 const sk = i.SK || '';
                 const time = sk.includes('#') ? sk.split('#')[1] : sk;
                 const value = i.Value || 0;
-                
-                let displayVal = value.toFixed(0);
-                if (i.Type === 'GYM') displayVal = '✓';
-                else if (i.Type === 'EXERCISE') {
-                    const exercise = i.Note;
-                    if (exercise === 'bench' || exercise === 'squat') {
-                        displayVal = value.toFixed(0) + ' kg';
-                    } else if (exercise === '5k') {
-                        const mins = Math.floor(value / 60);
-                        const secs = value % 60;
-                        displayVal = `${mins}:${secs.toString().padStart(2, '0')}`;
-                    } else if (exercise === 'pullups') {
-                        displayVal = value.toFixed(0) + ' reps';
-                    }
-                }
-                
-                const displayPro = i.Type === 'FOOD' ? (i.Protein || 0).toFixed(0) : '-';
+                const displayPro = (i.Protein || 0).toFixed(1);
+                const displayCarb = (i.Carbs || 0).toFixed(1);
+                const displayFat = (i.Fat || 0).toFixed(1);
                 const deleteBtn = sk.includes('DAILY') ? '' : `<button onclick="deleteLogEntry('${i.PK}','${i.SK}')" style="background:none; border:none; color:#ff4444; cursor:pointer; font-size:1.1em;"><i class="fas fa-trash"></i></button>`;
+                const noteDisplay = i.Note || '';
                 
-                const noteDisplay = i.Type === 'EXERCISE' 
-                    ? (i.Note === 'bench' ? 'Bench Press' : i.Note === 'squat' ? 'Squat' : i.Note === '5k' ? '5K Run' : 'Pullups')
-                    : (i.Note || '');
-                
-                const nutrientsBtn = (i.Type === 'FOOD' && i.Nutrients) 
+                const nutrientsBtn = (i.Nutrients) 
                     ? `<button onclick="showNutrientDetails('${i.PK}','${i.SK}')" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:1em; margin-left: 5px;" title="View Micronutrients"><i class="fas fa-info-circle"></i></button>`
                     : '';
                 
-                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${i.Type}</td><td>${displayVal}</td><td>${displayPro}</td><td>${noteDisplay}${nutrientsBtn}</td><td>${deleteBtn}</td></tr>`;
+                tbody.innerHTML += `<tr><td>${i.PK} <small style="color:var(--sub)">${time}</small></td><td>${value.toFixed(0)}</td><td>${displayPro}</td><td>${displayCarb}</td><td>${displayFat}</td><td>${noteDisplay}${nutrientsBtn}</td><td>${deleteBtn}</td></tr>`;
             });
-            document.getElementById('logPageIndicator').innerText = `Page ${logPage}`;
+            document.getElementById('logPageIndicator').innerText = `Page ${logPage} of ${maxPage}`;
         }
 
         function showNutrientDetails(itemOrPk, sk, manualQty = null) {
@@ -3718,12 +3742,12 @@
             
             // Today's Protein Gauge (uses historical goals for today)
             const todayGoals = getGoalsForDate(today);
-            const proToday = t.pro.toFixed(0);
-            document.getElementById('d-pro-today').innerText = proToday + 'g';
+            const proToday = t.pro || 0;
+            document.getElementById('d-pro-today').innerText = proToday.toFixed(1) + 'g';
             const proIndicatorEl = document.getElementById('protein-indicator');
             const proGaugeEl = document.getElementById('protein-gauge');
             if (proToday > 0) {
-                const proMet = parseFloat(proToday) >= todayGoals.protein;
+                const proMet = proToday >= todayGoals.protein;
                 proIndicatorEl.innerHTML = proMet ? '<i class="fa-solid fa-circle-check icon-success"></i>' : '<i class="fa-solid fa-circle-xmark icon-fail"></i>';
                 proGaugeEl.style.borderColor = proMet ? 'var(--green)' : 'var(--red)';
             } else {
@@ -3819,11 +3843,25 @@
                         borderWidth: 2
                     }]
                 },
+                plugins: [macroPercentLegendPlugin],
                 options: {
                     maintainAspectRatio: false,
                     plugins: {
                         title: { display: true, text: 'Current Week Average Macro Ratio', color: '#e0e0e0' },
-                        legend: { position: 'bottom', labels: { color: '#aaa' } },
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#aaa',
+                                generateLabels(chart) {
+                                    const defaults = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                                    const percents = chart._macroPercents || [];
+                                    return defaults.map((item, index) => ({
+                                        ...item,
+                                        text: `${item.text} ${percents[index] ?? 0}%`
+                                    }));
+                                }
+                            }
+                        },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
@@ -3840,7 +3878,7 @@
             const rawBody = document.getElementById('rawTable'); rawBody.innerHTML = '';
             uniqueDays.forEach(d => {
                 const r = dayRollup[d];
-                rawBody.innerHTML += `<tr><td>${formatDateDDMM(d)}</td><td>${r.in}</td><td>${r.out.toFixed(0)}</td><td>${r.net.toFixed(0)}</td><td>${r.weight}</td><td>${r.gym?'Y':'N'}</td><td>${r.pro}</td><td>${r.sleep||'-'}</td></tr>`;
+                rawBody.innerHTML += `<tr><td>${formatDateDDMM(d)}</td><td>${r.in}</td><td>${r.out.toFixed(0)}</td><td>${r.net.toFixed(0)}</td><td>${r.weight}</td><td>${r.gym?'Y':'N'}</td><td>${r.pro.toFixed(1)}</td><td>${r.sleep||'-'}</td></tr>`;
             });
             
             const weeklyData = {};
@@ -3936,7 +3974,7 @@
             });
             
             // Calorie Net Chart
-            const calorieDays = uniqueDays.slice(0, 30).reverse(); // Last 30 days
+            const calorieDays = [...uniqueDays].reverse();
             const calorieNets = calorieDays.map(d => dayRollup[d].net);
             
             if (calorieChartInstance) calorieChartInstance.destroy();
