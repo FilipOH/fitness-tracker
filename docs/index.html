@@ -3585,30 +3585,12 @@
             
             const config = { fps: 10, qrbox: { width: 250, height: 150 } };
             
-            // Try macro-friendly focus first, then fall back to plain back camera.
-            const macroCameraConstraints = {
-                facingMode: "environment",
-                advanced: [
-                    { focusMode: "continuous" }
-                ]
-            };
-            const fallbackCameraConstraints = { facingMode: "environment" };
-            
             try {
-                try {
-                    await html5QrCode.start(
-                        macroCameraConstraints,
-                        config,
-                        onScanSuccess
-                    );
-                } catch (macroErr) {
-                    console.warn("Macro camera constraints not supported, retrying with fallback:", macroErr);
-                    await html5QrCode.start(
-                        fallbackCameraConstraints,
-                        config,
-                        onScanSuccess
-                    );
-                }
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    config,
+                    onScanSuccess
+                );
             } catch (err) {
                 console.error("Scanner error:", err);
                 showToast("Could not start camera", "exclamation-triangle");
