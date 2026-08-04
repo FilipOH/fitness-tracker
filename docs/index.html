@@ -3585,21 +3585,30 @@
             
             const config = { fps: 10, qrbox: { width: 250, height: 150 } };
             
-            // Request macro/close-up focus mode for faster barcode scanning
-            const cameraConstraints = {
+            // Try macro-friendly focus first, then fall back to plain back camera.
+            const macroCameraConstraints = {
                 facingMode: "environment",
                 advanced: [
-                    { focusMode: "continuous" },
-                    { focusDistance: { ideal: 0.1, max: 0.3 } }
+                    { focusMode: "continuous" }
                 ]
             };
+            const fallbackCameraConstraints = { facingMode: "environment" };
             
             try {
-                await html5QrCode.start(
-                    cameraConstraints, 
-                    config, 
-                    onScanSuccess
-                );
+                try {
+                    await html5QrCode.start(
+                        macroCameraConstraints,
+                        config,
+                        onScanSuccess
+                    );
+                } catch (macroErr) {
+                    console.warn("Macro camera constraints not supported, retrying with fallback:", macroErr);
+                    await html5QrCode.start(
+                        fallbackCameraConstraints,
+                        config,
+                        onScanSuccess
+                    );
+                }
             } catch (err) {
                 console.error("Scanner error:", err);
                 showToast("Could not start camera", "exclamation-triangle");
