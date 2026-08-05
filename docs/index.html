@@ -16,6 +16,7 @@
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --accent: #00adb5; --sub: #888; --green: #28a745; --red: #dc3545; }
@@ -712,6 +713,7 @@
         let goals = { weeklyNet: -3850, weeklyComparison: 'less', protein: 80, sleep: 75, gym: 2 };
         let goalHistory = []; // Historical goals with effectiveDate
         let allRawItems = [];
+        let currentBaseline = 2000;
         let logPage = 1;
         const logPageSize = 25;
         let weekPage = 1;
@@ -1921,58 +1923,134 @@
             }
         }
 
+        function buildDayRollupForExport(items, baseline) {
+            const uniqueDays = [...new Set(items.map(i => i.PK))]
+                .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+                .sort()
+                .reverse();
+
+            const dayRollup = {};
+            uniqueDays.forEach(d => {
+                let dIn = 0, dOut = baseline, dPro = 0, dW = '--', dGym = 0, dSleep = 0;
+                items.filter(i => i.PK === d).forEach(i => {
+                    if (i.Type === 'FOOD') {
+                        dIn += i.Value || 0;
+                        dPro += i.Protein || 0;
+                    }
+                    if (i.Type === 'ACTIVE') dOut += i.Value || 0;
+                    if (i.Type === 'WEIGHT') dW = i.Value;
+                    if (i.Type === 'GYM') dGym = 1;
+                    if (i.Type === 'SLEEP') dSleep = i.Value;
+                });
+
+                dayRollup[d] = {
+                    in: dIn,
+                    out: dOut,
+                    net: dIn - dOut,
+                    pro: dPro,
+                    weight: dW,
+                    gym: dGym,
+                    sleep: dSleep
+                };
+            });
+
+            return { uniqueDays, dayRollup };
+        }
+
+        function buildDetailedFoodRowsForExport(items) {
+            return items
+                .filter(i => i.Type === 'FOOD')
+                .sort((a, b) => {
+                    const pkA = a.PK || '';
+                    const pkB = b.PK || '';
+                    const skA = a.SK || '';
+                    const skB = b.SK || '';
+                    return (pkB + skB).localeCompare(pkA + skA);
+                })
+                .map(i => {
+                    const sk = i.SK || '';
+                    const time = sk.includes('#') ? sk.split('#')[1] : sk;
+                    return {
+                        dateTime: `${i.PK} ${time}`.trim(),
+                        cals: Number(i.Value || 0),
+                        prot: Number(i.Protein || 0),
+                        carb: Number(i.Carbs || 0),
+                        fat: Number(i.Fat || 0),
+                        note: i.Note || ''
+                    };
+                });
+        }
+
         function exportCSV() {
             const ukDate = getUKDateTime();
             const timestamp = ukDate.date;
-            
-            // Export 1: Activity Logs
-            if (allRawItems && allRawItems.length > 0) {
-                let logsCSV = 'Date,Time,Type,Value,Protein,Note\n';
-                allRawItems.forEach(item => {
-                    const time = item.SK.includes('#') ? item.SK.split('#')[1] : item.SK;
-                    const protein = item.Protein || 0;
-                    const note = (item.Note || '').replace(/,/g, ';').replace(/"/g, '""'); // Escape quotes and commas
-                    logsCSV += `${item.PK},${time},${item.Type},${item.Value},${protein},"${note}"\n`;
-                });
-                
-                const logsBlob = new Blob([logsCSV], { type: 'text/csv;charset=utf-8;' });
-                const logsLink = document.createElement('a');
-                logsLink.href = URL.createObjectURL(logsBlob);
-                logsLink.download = `fitness-logs-${timestamp}.csv`;
-                logsLink.style.visibility = 'hidden';
-                document.body.appendChild(logsLink);
-                logsLink.click();
-                document.body.removeChild(logsLink);
-            }
-            
-            // Export 2: Saved Meals
-            if (meals && meals.length > 0) {
-                let mealsCSV = 'Meal Name,Total Calories,Protein (g),Portions,Calories per Portion,Ingredients\n';
-                meals.forEach(meal => {
-                    const perPortion = (meal.Calories / meal.Portions).toFixed(0);
-                    const ingredients = meal.Ingredients && meal.Ingredients.length > 0
-                        ? meal.Ingredients.map(ing => `${ing.desc || ''} (${ing.qty || ''}) ${ing.cals || 0}cal`).join(' | ')
-                        : 'N/A';
-                    const ingredientsEscaped = ingredients.replace(/"/g, '""');
-                    mealsCSV += `"${meal.MealName}",${meal.Calories},${meal.Protein || 0},${meal.Portions},${perPortion},"${ingredientsEscaped}"\n`;
-                });
-                
-                const mealsBlob = new Blob([mealsCSV], { type: 'text/csv;charset=utf-8;' });
-                const mealsLink = document.createElement('a');
-                mealsLink.href = URL.createObjectURL(mealsBlob);
-                mealsLink.download = `saved-meals-${timestamp}.csv`;
-                mealsLink.style.visibility = 'hidden';
-                document.body.appendChild(mealsLink);
-                mealsLink.click();
-                document.body.removeChild(mealsLink);
-            }
-            
-            // Show appropriate message
-            if ((allRawItems && allRawItems.length > 0) || (meals && meals.length > 0)) {
-                const count = (allRawItems?.length ? 1 : 0) + (meals?.length ? 1 : 0);
-                showToast(`${count} file${count > 1 ? 's' : ''} exported successfully`, 'download');
-            } else {
+
+            if (!allRawItems || allRawItems.length === 0) {
                 showToast('No data to export', 'exclamation-triangle');
+                return;
+            }
+
+            if (typeof XLSX === 'undefined') {
+                logClient('error', 'export.xlsx', 'XLSX library not available at runtime');
+                showToast('Excel export unavailable. Please refresh and try again.', 'exclamation-triangle');
+                return;
+            }
+
+            try {
+                const workbook = XLSX.utils.book_new();
+
+                // Sheet 1: Daily Summary (as shown in app)
+                const { uniqueDays, dayRollup } = buildDayRollupForExport(allRawItems, currentBaseline || 2000);
+                const dailyRows = [
+                    ['Date', 'In', 'Out', 'Net', 'KG', 'Gym', 'Pro', 'Slp']
+                ];
+
+                uniqueDays.forEach(d => {
+                    const r = dayRollup[d];
+                    dailyRows.push([
+                        formatDateDDMM(d),
+                        Number((r.in || 0).toFixed(0)),
+                        Number((r.out || 0).toFixed(0)),
+                        Number((r.net || 0).toFixed(0)),
+                        r.weight === '--' ? '--' : Number(r.weight),
+                        r.gym ? 'Y' : 'N',
+                        Number((r.pro || 0).toFixed(1)),
+                        r.sleep || '-'
+                    ]);
+                });
+
+                const dailySheet = XLSX.utils.aoa_to_sheet(dailyRows);
+                XLSX.utils.book_append_sheet(workbook, dailySheet, 'Daily Summary');
+
+                // Sheet 2: Detailed Logs (all pages/full set)
+                const detailedRows = [
+                    ['Date/Time', 'Cals', 'Prot', 'Carb', 'Fat', 'Note']
+                ];
+
+                const foodRows = buildDetailedFoodRowsForExport(allRawItems);
+                foodRows.forEach(row => {
+                    detailedRows.push([
+                        row.dateTime,
+                        Number(row.cals.toFixed(0)),
+                        Number(row.prot.toFixed(1)),
+                        Number(row.carb.toFixed(1)),
+                        Number(row.fat.toFixed(1)),
+                        row.note
+                    ]);
+                });
+
+                const detailedSheet = XLSX.utils.aoa_to_sheet(detailedRows);
+                XLSX.utils.book_append_sheet(workbook, detailedSheet, 'Detailed Logs');
+
+                XLSX.writeFile(workbook, `fitness-export-${timestamp}.xlsx`);
+                logClient('info', 'export.xlsx', 'Workbook exported', {
+                    dailyRows: Math.max(0, dailyRows.length - 1),
+                    detailedRows: Math.max(0, detailedRows.length - 1)
+                });
+                showToast('Excel export downloaded', 'download');
+            } catch (e) {
+                logClient('error', 'export.xlsx', 'Workbook export failed', { error: e });
+                showToast('Export failed', 'exclamation-triangle');
             }
         }
 
@@ -4042,6 +4120,7 @@
 
         // Extracted rendering logic from loadDashboard
         function renderDashboardData(items, baseline) {
+            currentBaseline = baseline;
             const ukDate = getUKDateTime();
             const today = ukDate.date;
             // Ensure we only process date-based keys for the dashboard rollup
