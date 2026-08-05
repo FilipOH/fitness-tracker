@@ -11,6 +11,50 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
+const REDACT_KEYS = ['apikey', 'api_key', 'password', 'token', 'secret', 'authorization'];
+
+function sanitizeMeta(meta) {
+  if (!meta || typeof meta !== 'object') return meta;
+  const out = {};
+  Object.entries(meta).forEach(([key, value]) => {
+    const keyLower = String(key).toLowerCase();
+    if (REDACT_KEYS.some(k => keyLower.includes(k))) {
+      out[key] = '[redacted]';
+      return;
+    }
+
+    if (value instanceof Error) {
+      out[key] = { message: value.message, name: value.name };
+      return;
+    }
+
+    if (typeof value === 'string' && value.length > 300) {
+      out[key] = `${value.slice(0, 300)}...`;
+      return;
+    }
+
+    out[key] = value;
+  });
+  return out;
+}
+
+function logEvent(level, stage, message, meta = {}) {
+  const entry = {
+    ts: new Date().toISOString(),
+    stage,
+    message,
+    ...sanitizeMeta(meta)
+  };
+
+  if (level === 'error') {
+    console.error(JSON.stringify(entry));
+  } else if (level === 'warn') {
+    console.warn(JSON.stringify(entry));
+  } else {
+    console.log(JSON.stringify(entry));
+  }
+}
+
 export default {
   async fetch(request, env) {
     // Handle CORS preflight early
@@ -50,7 +94,10 @@ export default {
         headers: finalHeaders
       });
     } catch (err) {
-      console.error('Fatal Worker Error:', err);
+      logEvent('error', 'worker.fetch', 'Fatal Worker Error', {
+        errorName: err?.name,
+        errorMessage: err?.message
+      });
       return new Response(JSON.stringify({ 
         error: err.message,
         stack: err.stack 
@@ -216,7 +263,11 @@ async function handleApiRequest(request, env) {
               break;
             }
           } catch (e) {
-            console.error(`Fetch error for ${targetUrl}:`, e.message);
+            logEvent('warn', 'search.fetch', 'Upstream fetch failed', {
+              targetUrl,
+              attempt: attempts + 1,
+              errorMessage: e?.message
+            });
           }
           attempts++;
         }
@@ -587,7 +638,10 @@ async function handleApiRequest(request, env) {
       });
 
     } catch (e) {
-      console.error('Unified Search Error:', e);
+      logEvent('error', 'search.execute', 'Unified Search Error', {
+        query,
+        errorMessage: e?.message
+      });
       return jsonResponse({ error: 'Search failed', details: e.message }, 500);
     }
   }
@@ -606,7 +660,7 @@ async function handleApiRequest(request, env) {
     if (count.total % 20 === 0 && count.total > 0) {
       // Trigger background weight adjustment logic
       // In a real scenario, this would be more complex, but here we'll do a simple nudge
-      console.log('Triggering "training" tweak after 20 feedbacks...');
+      logEvent('info', 'search.training', 'Triggering training tweak', { feedbackCount: count.total });
       
       // If users click results at lower ranks (> 5), we slightly increase "starts_with" or "generic_bonus"
       const avgRank = await env.DB.prepare('SELECT AVG(clicked_rank) as avg_r FROM search_feedback').first();
@@ -626,7 +680,9 @@ async function handleApiRequest(request, env) {
     try {
       data = await request.json();
     } catch (e) {
-      console.error('POST /log JSON Parse Error:', e);
+      logEvent('warn', 'log.create.parse', 'Invalid JSON payload for /log', {
+        errorMessage: e?.message
+      });
       return jsonResponse({ error: 'Invalid or empty JSON payload' }, 400);
     }
     
@@ -682,7 +738,11 @@ async function handleApiRequest(request, env) {
       }
       return jsonResponse({ status: 'success' });
     } catch (e) {
-      console.error('D1 Insert Error:', e);
+      logEvent('error', 'log.create.insert', 'D1 Insert Error', {
+        type,
+        date,
+        errorMessage: e?.message
+      });
       return jsonResponse({ error: e.message }, 500);
     }
   }

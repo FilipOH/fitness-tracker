@@ -462,6 +462,21 @@
             <div class="card stat"><h2>Today's Sleep</h2><p id="d-sleep">--</p></div>
         </div>
 
+        <div class="card" style="margin-top: 12px; padding: 14px; border: 1px solid #2f2f2f; background: linear-gradient(180deg, rgba(0,173,181,0.09), rgba(0,0,0,0.0));">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h3 style="margin:0; font-size:0.85em; letter-spacing:0.8px; color:var(--sub); text-transform:uppercase;">Coach Pulse</h3>
+                <span id="coach-updated" style="font-size:0.72em; color:#8b8b8b;">Auto</span>
+            </div>
+            <p id="coach-summary" style="margin:0 0 10px 0; font-size:0.92em; color:#e7e7e7; line-height:1.45;">Analyzing your trend data...</p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                <span id="risk-calories" style="font-size:0.72em; padding:5px 9px; border-radius:999px; background:#2f2f2f; color:#d7d7d7;">Calories: --</span>
+                <span id="risk-protein" style="font-size:0.72em; padding:5px 9px; border-radius:999px; background:#2f2f2f; color:#d7d7d7;">Protein: --</span>
+                <span id="risk-training" style="font-size:0.72em; padding:5px 9px; border-radius:999px; background:#2f2f2f; color:#d7d7d7;">Training: --</span>
+            </div>
+            <p id="coach-action" style="margin:0 0 8px 0; font-size:0.84em; color:#bcd8db;">Action: --</p>
+            <p id="coach-evidence" style="margin:0; font-size:0.74em; color:#909090;">Evidence: --</p>
+        </div>
+
         <h2 style="font-size: 1.1em; color: var(--sub); margin: 20px 0 10px;">Overall Progress</h2>
         <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
             <div>
@@ -821,6 +836,42 @@
         let ratioLock = null; // Store base ratios for auto-calc
         let currentMealMicros = null; // Summed micros for multi-ingredient meals
 
+        const CLIENT_REDACT_KEYS = ['apikey', 'api_key', 'password', 'token', 'secret', 'authorization'];
+
+        function sanitizeClientMeta(meta) {
+            if (!meta || typeof meta !== 'object') return meta;
+            const out = {};
+            Object.entries(meta).forEach(([key, value]) => {
+                const keyLower = String(key).toLowerCase();
+                if (CLIENT_REDACT_KEYS.some(k => keyLower.includes(k))) {
+                    out[key] = '[redacted]';
+                    return;
+                }
+                if (value instanceof Error) {
+                    out[key] = { name: value.name, message: value.message };
+                    return;
+                }
+                if (typeof value === 'string' && value.length > 300) {
+                    out[key] = `${value.slice(0, 300)}...`;
+                    return;
+                }
+                out[key] = value;
+            });
+            return out;
+        }
+
+        function logClient(level, stage, message, meta = {}) {
+            const entry = {
+                ts: new Date().toISOString(),
+                stage,
+                message,
+                ...sanitizeClientMeta(meta)
+            };
+            if (level === 'error') console.error(JSON.stringify(entry));
+            else if (level === 'warn') console.warn(JSON.stringify(entry));
+            else console.log(JSON.stringify(entry));
+        }
+
         function disableGlobalAutoScalingWithWarning(inputEl) {
             if (!ratioLock) return true;
             const confirmed = confirm('Making a change to this field will cancel auto-scaling and micronutrient scaling. Continue?');
@@ -988,7 +1039,9 @@
                 if (meal && meal.MealName) {
                     store.put(meal);
                 } else {
-                    console.warn("Skipping meal without MealName:", meal);
+                    logClient('warn', 'cache.meals.save', 'Skipping meal without MealName', {
+                        hasMealObject: !!meal
+                    });
                 }
             });
         }
@@ -1007,7 +1060,7 @@
         // Add mutation to offline queue
         async function queueMutation(mutation) {
             if (!db) {
-                console.error('IndexedDB not initialized - db is null');
+                logClient('error', 'db.queueMutation', 'IndexedDB not initialized');
                 throw new Error('Database not available');
             }
             return new Promise((resolve, reject) => {
@@ -1034,7 +1087,7 @@
         // Get all pending mutations
         async function getPendingMutations() {
             if (!db) {
-                console.error('IndexedDB not initialized');
+                logClient('warn', 'db.pending.get', 'IndexedDB not initialized');
                 return [];
             }
             return new Promise((resolve, reject) => {
@@ -1046,7 +1099,7 @@
                     request.onsuccess = () => resolve(request.result);
                     request.onerror = () => reject(request.error);
                 } catch (e) {
-                    console.error('Error getting pending mutations:', e);
+                    logClient('error', 'db.pending.get', 'Failed to read pending mutations', { error: e });
                     resolve([]);
                 }
             });
@@ -1055,7 +1108,7 @@
         // Remove mutation from queue
         async function removeMutation(id) {
             if (!db) {
-                console.error('IndexedDB not initialized');
+                logClient('warn', 'db.pending.remove', 'IndexedDB not initialized', { mutationId: id });
                 return;
             }
             return new Promise((resolve, reject) => {
@@ -1089,7 +1142,7 @@
                     badge.style.display = 'none';
                 }
             } catch (e) {
-                console.error('Error updating pending count:', e);
+                logClient('error', 'sync.pending.count', 'Failed to update pending count', { error: e });
             }
         }
 
@@ -1124,7 +1177,11 @@
                         // Check if mutation is too old (7 days)
                         const age = Date.now() - mutation.timestamp;
                         if (age > 7 * 24 * 60 * 60 * 1000) {
-                            console.warn('Skipping mutation older than 7 days:', mutation);
+                            logClient('warn', 'sync.mutation.skip', 'Skipping stale mutation older than 7 days', {
+                                mutationId: mutation.id,
+                                endpoint: mutation.endpoint,
+                                ageMs: age
+                            });
                             await removeMutation(mutation.id);
                             failCount++;
                             continue;
@@ -1142,11 +1199,19 @@
                             successCount++;
                         } else {
                             failCount++;
-                            console.error('Sync failed for mutation:', mutation, res.status);
+                            logClient('warn', 'sync.mutation.fail', 'Sync request failed', {
+                                mutationId: mutation.id,
+                                endpoint: mutation.endpoint,
+                                status: res.status
+                            });
                         }
                     } catch (e) {
                         failCount++;
-                        console.error('Error syncing mutation:', mutation, e);
+                        logClient('error', 'sync.mutation.error', 'Error syncing mutation', {
+                            mutationId: mutation.id,
+                            endpoint: mutation.endpoint,
+                            error: e
+                        });
                     }
                 }
                 
@@ -1159,7 +1224,7 @@
                 }
                 
             } catch (e) {
-                console.error('Sync error:', e);
+                logClient('error', 'sync.run', 'Sync run failed', { error: e });
                 showToast('Sync error - will retry later', 'exclamation-triangle');
             } finally {
                 isSyncing = false;
@@ -1333,7 +1398,10 @@
                     return true;
                 }
             } catch (error) {
-                console.error('Biometric registration failed:', error);
+                logClient('error', 'auth.biometric.register', 'Biometric registration failed', {
+                    errorName: error?.name,
+                    errorMessage: error?.message
+                });
                 if (error.name === 'NotAllowedError') {
                     showToast('Biometric registration cancelled', 'exclamation-triangle');
                 } else {
@@ -1380,7 +1448,10 @@
                     return true; // Biometric authentication successful
                 }
             } catch (error) {
-                console.error('Biometric authentication failed:', error);
+                logClient('warn', 'auth.biometric.verify', 'Biometric authentication failed', {
+                    errorName: error?.name,
+                    errorMessage: error?.message
+                });
                 if (error.name === 'NotAllowedError') {
                     // User cancelled or biometric failed
                     return false;
@@ -1479,7 +1550,7 @@
                     return false;
                 }
             } catch (e) {
-                console.error('Error checking device trust:', e);
+                logClient('warn', 'auth.deviceTrust.check', 'Device trust check failed', { error: e });
                 return false;
             }
         }
@@ -1504,11 +1575,13 @@
                     localStorage.setItem('cal_device_token', data.deviceToken);
                     return true;
                 } else {
-                    console.error('Failed to trust device:', data.error);
+                    logClient('warn', 'auth.deviceTrust.create', 'Failed to trust device', {
+                        errorMessage: data.error
+                    });
                     return false;
                 }
             } catch (e) {
-                console.error('Error trusting device:', e);
+                logClient('error', 'auth.deviceTrust.create', 'Error trusting device', { error: e });
                 return false;
             }
         }
@@ -1558,7 +1631,7 @@
                 }
             } catch (e) {
                 errorEl.innerText = 'Error verifying code';
-                console.error('MFA verification error:', e);
+                logClient('error', 'auth.mfa.verify', 'MFA verification error', { error: e });
             }
         }
         
@@ -1719,7 +1792,7 @@
                     }
                 };
             } catch (e) {
-                console.error("Error reading goals cache", e);
+                logClient('warn', 'goals.cache.read', 'Error reading goals cache', { error: e });
             }
 
             try {
@@ -1742,7 +1815,7 @@
                 hideLoading();
             } catch (e) { 
                 hideLoading();
-                console.log("Using default goals", e); 
+                logClient('info', 'goals.fetch', 'Using default goals after fetch failure', { error: e });
             }
         }
 
@@ -1789,7 +1862,7 @@
                 }
             } catch (e) {
                 showToast('Error saving goals', 'exclamation-triangle');
-                console.error(e);
+                logClient('error', 'goals.save', 'Failed to save goals', { error: e });
             }
         }
 
@@ -1842,7 +1915,7 @@
                 // Hard reload (bypassing browser cache)
                 window.location.reload(true);
             } catch (e) {
-                console.error('Refresh failed:', e);
+                logClient('error', 'app.refresh', 'Force refresh failed, falling back to normal reload', { error: e });
                 // Fallback to simple reload
                 window.location.reload(true);
             }
@@ -1918,12 +1991,17 @@
                 if (res.ok) {
                     // SECURITY: Extract API key from D1 database (not visible in source code)
                     const data = await res.json();
-                    console.log('Auth response:', data); // Debug logging
+                    logClient('info', 'auth.password', 'Password auth response received', {
+                        hasApiKey: !!data.apiKey,
+                        status: data.status || null
+                    });
                     if (data.apiKey) {
                         API_KEY = data.apiKey;
                         localStorage.setItem('cal_api_key', API_KEY);
                     } else {
-                        console.error('Auth response missing apiKey field:', data);
+                        logClient('error', 'auth.password', 'Auth response missing apiKey field', {
+                            keys: Object.keys(data || {})
+                        });
                         errorEl.innerText = "Invalid authentication response";
                         return;
                     }
@@ -1973,10 +2051,10 @@
             // Initialize IndexedDB
             try {
                 await initDB();
-                console.log('IndexedDB initialized successfully');
+                logClient('info', 'startup.indexeddb', 'IndexedDB initialized successfully');
                 updatePendingCount();
             } catch (e) {
-                console.error('Failed to initialize IndexedDB:', e);
+                logClient('error', 'startup.indexeddb', 'Failed to initialize IndexedDB', { error: e });
                 showToast('Offline mode unavailable - browser storage disabled', 'exclamation-triangle');
             }
             
@@ -2032,17 +2110,19 @@
             if ('serviceWorker' in navigator) {
                 try {
                     const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
-                    console.log('Service Worker registered with scope:', registration.scope);
+                    logClient('info', 'startup.service-worker', 'Service Worker registered', {
+                        scope: registration.scope
+                    });
                     
                     // Wait for service worker to be ready
                     await navigator.serviceWorker.ready;
-                    console.log('Service Worker ready and controlling page');
+                    logClient('info', 'startup.service-worker', 'Service Worker ready and controlling page');
                 } catch (e) {
-                    console.error('Service Worker registration failed:', e);
+                    logClient('error', 'startup.service-worker', 'Service Worker registration failed', { error: e });
                     showToast('Offline mode unavailable - service worker failed', 'exclamation-triangle');
                 }
             } else {
-                console.warn('Service Worker not supported in this browser');
+                logClient('warn', 'startup.service-worker', 'Service Worker not supported in this browser');
             }
             
             // Network status listeners
@@ -2304,7 +2384,11 @@
                 }
             } catch (e) {
                 showToast('Error deleting entry', 'exclamation-triangle');
-                console.error('Delete error:', e);
+                logClient('error', 'logs.delete', 'Failed to delete log entry', {
+                    pk,
+                    sk,
+                    error: e
+                });
             }
         }
 
@@ -2446,7 +2530,7 @@
                             }
                         }
                     } catch (e) {
-                        console.warn("Failed to parse row nutrients", e);
+                        logClient('warn', 'meal.nutrients.parse', 'Failed to parse row nutrients', { error: e });
                     }
                 }
             });
@@ -2762,7 +2846,7 @@
             } catch (e) {
                 hideLoading();
                 showToast('Failed to save', 'exclamation-triangle');
-                console.error(e);
+                logClient('error', 'meal.save', 'Failed to save meal', { error: e });
             }
         }
 
@@ -2789,11 +2873,16 @@
             try {
                 const res = await fetch(`${API_BASE}/meals?key=${API_KEY}`, { headers: { 'x-api-key': API_KEY } });
                 if (!res.ok) {
-                    console.error('Meals fetch failed:', res.status, res.statusText);
+                    logClient('warn', 'meals.fetch', 'Meals fetch failed', {
+                        status: res.status,
+                        statusText: res.statusText
+                    });
                     throw new Error(`Failed to load meals: ${res.status}`);
                 }
                 const data = await res.json();
-                console.log('Meals loaded:', data.meals?.length || 0, 'items');
+                logClient('info', 'meals.fetch', 'Meals loaded', {
+                    count: data.meals?.length || 0
+                });
                 const mealsList = data.meals || [];
                 
                 // Save to cache
@@ -2801,7 +2890,7 @@
                 
                 renderMealsData(mealsList);
             } catch (e) {
-                console.error('Meals fetch error:', e);
+                logClient('error', 'meals.fetch', 'Meals fetch errored', { error: e });
             }
         }
 
@@ -3200,7 +3289,7 @@
                     return;
                 } catch (e) {
                     showToast('Failed to queue offline: ' + (e.message || 'Unknown error'), 'exclamation-triangle');
-                    console.error('Offline queue error:', e);
+                    logClient('error', 'log.submit.queue', 'Failed to queue offline mutation', { error: e });
                     return;
                 }
             }
@@ -3237,7 +3326,11 @@
                 hideLoading();
                 // If network error or timeout, queue for offline
                 const isTimeout = e.name === 'AbortError';
-                console.log('Network error caught:', e.name, e.message);
+                logClient('warn', 'log.submit.network', 'Network error while submitting log', {
+                    errorName: e?.name,
+                    errorMessage: e?.message,
+                    isTimeout
+                });
                 
                 // Show network status indicator if poor connection
                 if (isTimeout) {
@@ -3275,7 +3368,9 @@
                     });
                 } catch (queueError) {
                     showToast('Failed to save: ' + (queueError.message || 'Unknown error'), 'exclamation-triangle');
-                    console.error('Queue error:', queueError);
+                    logClient('error', 'log.submit.queue', 'Queue write failed after network error', {
+                        error: queueError
+                    });
                 }
             }
         }
@@ -3408,7 +3503,10 @@
                 }
 
             } catch (err) {
-                console.error("Search error:", err);
+                logClient('error', 'search.perform', 'Search request failed', {
+                    query,
+                    error: err
+                });
                 resultsContainer.innerHTML = '<p style="color: var(--red); text-align: center; margin-top: 50px;">Error performing search.</p>';
             }
         }
@@ -3457,7 +3555,13 @@
                     resultSource: item.source,
                     rank: rank
                 })
-            }).catch(e => console.error('Feedback failed:', e));
+            }).catch(e => logClient('warn', 'search.feedback', 'Feedback submit failed', {
+                query,
+                resultName: item.name,
+                resultSource: item.source,
+                rank,
+                error: e
+            }));
 
             // 2. Original selection logic (integrated)
             const cals = item.cals || 0;
@@ -3592,7 +3696,7 @@
                     onScanSuccess
                 );
             } catch (err) {
-                console.error("Scanner error:", err);
+                logClient('error', 'scanner.start', 'Could not start camera', { error: err });
                 showToast("Could not start camera", "exclamation-triangle");
                 stopScanner();
             }
@@ -3603,7 +3707,7 @@
                 try {
                     await html5QrCode.stop();
                 } catch (e) {
-                    console.error("Error stopping scanner:", e);
+                    logClient('warn', 'scanner.stop', 'Error stopping scanner', { error: e });
                 }
                 html5QrCode = null;
             }
@@ -3611,7 +3715,11 @@
         }
 
         async function onScanSuccess(decodedText, decodedResult) {
-            console.log(`Scan success: ${decodedText}`);
+            logClient('info', 'scanner.decode', 'Barcode decoded', {
+                codePreview: decodedText ? decodedText.slice(0, 8) : null,
+                codeLength: decodedText ? decodedText.length : 0,
+                context: activeScannerContext || 'auto'
+            });
             const scannerContext = activeScannerContext || 'auto';
             stopScanner();
             showLoading();
@@ -3729,7 +3837,7 @@
                     showToast("Product not found in database", "exclamation-triangle");
                 }
             } catch (e) {
-                console.error("OFF Lookup error:", e);
+                logClient('error', 'scanner.lookup', 'OFF product lookup failed', { error: e });
                 showToast("Error looking up product", "exclamation-triangle");
             } finally {
                 activeScannerContext = 'auto';
@@ -3764,12 +3872,172 @@
                 
                 renderDashboardData(items, baseline);
             } catch (e) {
-                console.error('Dashboard fetch error:', e);
+                logClient('error', 'dashboard.fetch', 'Dashboard fetch failed', { error: e });
                 // If we failed online but have cache, we already rendered it.
                 // If not, we might want to show a message.
             } finally {
                 hideLoading();
             }
+        }
+
+        function getDateShifted(dateStr, deltaDays) {
+            const dt = new Date(`${dateStr}T12:00:00Z`);
+            dt.setUTCDate(dt.getUTCDate() + deltaDays);
+            return dt.toISOString().split('T')[0];
+        }
+
+        function getWeekStartMonday(dateStr) {
+            const dt = new Date(`${dateStr}T12:00:00Z`);
+            const day = dt.getUTCDay();
+            const daysToMonday = day === 0 ? 6 : day - 1;
+            dt.setUTCDate(dt.getUTCDate() - daysToMonday);
+            return dt.toISOString().split('T')[0];
+        }
+
+        function average(values) {
+            if (!values || values.length === 0) return 0;
+            return values.reduce((sum, value) => sum + value, 0) / values.length;
+        }
+
+        function sum(values) {
+            if (!values || values.length === 0) return 0;
+            return values.reduce((acc, value) => acc + value, 0);
+        }
+
+        function getRiskStyle(level) {
+            if (level === 'High') return { bg: 'rgba(239, 111, 108, 0.2)', color: '#ff9f9d', border: '#7a3634' };
+            if (level === 'Medium') return { bg: 'rgba(242, 193, 78, 0.2)', color: '#ffd978', border: '#6e5d25' };
+            return { bg: 'rgba(76, 175, 80, 0.2)', color: '#8fe695', border: '#2d5f30' };
+        }
+
+        function applyRiskChip(id, label, level) {
+            const chip = document.getElementById(id);
+            if (!chip) return;
+            const style = getRiskStyle(level);
+            chip.textContent = `${label}: ${level}`;
+            chip.style.background = style.bg;
+            chip.style.color = style.color;
+            chip.style.border = `1px solid ${style.border}`;
+        }
+
+        function renderCoachPulse(dayRollup, today) {
+            const summaryEl = document.getElementById('coach-summary');
+            const actionEl = document.getElementById('coach-action');
+            const evidenceEl = document.getElementById('coach-evidence');
+            const updatedEl = document.getElementById('coach-updated');
+            if (!summaryEl || !actionEl || !evidenceEl || !updatedEl) return;
+
+            const last7 = [];
+            const prev7 = [];
+            for (let i = 6; i >= 0; i--) {
+                const date = getDateShifted(today, -i);
+                const row = dayRollup[date] || { net: 0, pro: 0, sleep: 0, gym: 0 };
+                last7.push({
+                    date,
+                    net: row.net || 0,
+                    pro: row.pro || 0,
+                    sleep: row.sleep || 0,
+                    gym: row.gym || 0,
+                    goals: getGoalsForDate(date)
+                });
+            }
+            for (let i = 13; i >= 7; i--) {
+                const date = getDateShifted(today, -i);
+                const row = dayRollup[date] || { net: 0, pro: 0, sleep: 0, gym: 0 };
+                prev7.push({
+                    date,
+                    net: row.net || 0,
+                    pro: row.pro || 0,
+                    sleep: row.sleep || 0,
+                    gym: row.gym || 0,
+                    goals: getGoalsForDate(date)
+                });
+            }
+
+            const avgProtein7 = average(last7.map(d => d.pro));
+            const avgProteinPrev7 = average(prev7.map(d => d.pro));
+            const avgProteinGoal7 = average(last7.map(d => d.goals?.protein || goals.protein));
+            const proteinGap = avgProteinGoal7 - avgProtein7;
+
+            const sleepLoggedDays = last7.filter(d => d.sleep > 0);
+            const avgSleep7 = sleepLoggedDays.length ? average(sleepLoggedDays.map(d => d.sleep)) : 0;
+            const avgSleepGoal7 = average(last7.map(d => d.goals?.sleep || goals.sleep));
+
+            const net7 = sum(last7.map(d => d.net));
+            const netPrev7 = sum(prev7.map(d => d.net));
+            const netDelta = net7 - netPrev7;
+
+            const weekStart = getWeekStartMonday(today);
+            const currentWeekGoal = getGoalsForWeek(weekStart);
+            const todayDate = new Date(`${today}T12:00:00Z`);
+            const dayOfWeek = todayDate.getUTCDay();
+            const elapsedDays = dayOfWeek === 0 ? 7 : dayOfWeek;
+            const remainingDays = Math.max(0, 7 - elapsedDays);
+
+            const weekDays = [];
+            for (let i = 0; i < elapsedDays; i++) {
+                weekDays.push(getDateShifted(weekStart, i));
+            }
+            const weekNet = sum(weekDays.map(d => (dayRollup[d]?.net || 0)));
+            const weekGym = sum(weekDays.map(d => (dayRollup[d]?.gym || 0)));
+            const projectedWeekNet = elapsedDays > 0 ? (weekNet / elapsedDays) * 7 : 0;
+
+            let calorieRisk = 'Low';
+            let calorieDrift = 0;
+            if (currentWeekGoal.weeklyComparison === 'less') {
+                const paceTarget = currentWeekGoal.weeklyNet * (elapsedDays / 7);
+                calorieDrift = weekNet - paceTarget;
+                if (calorieDrift > 500) calorieRisk = 'High';
+                else if (calorieDrift > 200) calorieRisk = 'Medium';
+            } else {
+                const paceTarget = currentWeekGoal.weeklyNet * (elapsedDays / 7);
+                calorieDrift = paceTarget - weekNet;
+                if (calorieDrift > 500) calorieRisk = 'High';
+                else if (calorieDrift > 200) calorieRisk = 'Medium';
+            }
+
+            let proteinRisk = 'Low';
+            if (proteinGap > 20) proteinRisk = 'High';
+            else if (proteinGap > 10) proteinRisk = 'Medium';
+
+            let trainingRisk = 'Low';
+            const remainingSessions = Math.max(0, (currentWeekGoal.gym || 0) - weekGym);
+            if (remainingSessions > remainingDays) trainingRisk = 'High';
+            else if (remainingSessions > 0) trainingRisk = 'Medium';
+
+            applyRiskChip('risk-calories', 'Calories', calorieRisk);
+            applyRiskChip('risk-protein', 'Protein', proteinRisk);
+            applyRiskChip('risk-training', 'Training', trainingRisk);
+
+            const proteinTrend = avgProtein7 - avgProteinPrev7;
+            const proteinTrendText = proteinTrend > 5 ? 'protein is trending up' : (proteinTrend < -5 ? 'protein is trending down' : 'protein is stable');
+            const netTrendText = netDelta <= -200
+                ? 'net calories improved versus the previous week'
+                : (netDelta >= 200 ? 'net calories drifted up versus the previous week' : 'net calories are steady versus last week');
+            const sleepText = sleepLoggedDays.length > 0
+                ? (avgSleep7 >= avgSleepGoal7 ? 'sleep is meeting target' : 'sleep is below target')
+                : 'sleep has limited recent data';
+
+            let action = 'Action: Keep current pace and maintain your logging consistency.';
+            if (proteinRisk === 'High' || proteinRisk === 'Medium') {
+                action = `Action: Add about ${Math.max(10, Math.ceil(proteinGap))}g protein today to close your rolling gap.`;
+            } else if (calorieRisk === 'High' || calorieRisk === 'Medium') {
+                const dailyCorrection = remainingDays > 0 ? Math.ceil(Math.abs(calorieDrift) / remainingDays) : Math.ceil(Math.abs(calorieDrift));
+                if (currentWeekGoal.weeklyComparison === 'less') {
+                    action = `Action: Aim for roughly ${dailyCorrection} fewer net calories per remaining day this week.`;
+                } else {
+                    action = `Action: Aim for roughly ${dailyCorrection} more net calories per remaining day this week.`;
+                }
+            } else if (trainingRisk !== 'Low') {
+                action = `Action: Schedule ${remainingSessions} gym session${remainingSessions === 1 ? '' : 's'} across the next ${remainingDays} day${remainingDays === 1 ? '' : 's'}.`;
+            } else if (sleepLoggedDays.length > 0 && avgSleep7 < avgSleepGoal7 - 5) {
+                action = 'Action: Prioritize one earlier night this week to reduce sleep debt and support adherence.';
+            }
+
+            summaryEl.textContent = `Trend summary: ${proteinTrendText}; ${netTrendText}; ${sleepText}.`;
+            actionEl.textContent = action;
+            evidenceEl.textContent = `Evidence: 7d protein ${avgProtein7.toFixed(1)}g/day vs target ${avgProteinGoal7.toFixed(1)}g/day, week net ${weekNet.toFixed(0)} (projected ${projectedWeekNet.toFixed(0)}), gym ${weekGym}/${currentWeekGoal.gym}.`;
+            updatedEl.textContent = `Updated ${today}`;
         }
 
         // Extracted rendering logic from loadDashboard
@@ -3795,6 +4063,9 @@
                 });
                 dayRollup[d] = { in: dIn, out: dOut, net: dIn - dOut, pro: dPro, carbs: dCarbs, fat: dFat, weight: dW, gym: dGym, sleep: dSleep };
             });
+
+            renderCoachPulse(dayRollup, today);
+
             const t = dayRollup[today] || { in:0, out:baseline, net:-baseline, pro:0, weight:"--", gym:0, sleep:0 };
             document.getElementById('d-in').innerText = t.in.toFixed(0);
             document.getElementById('d-out').innerText = t.out.toFixed(0);
@@ -3950,7 +4221,7 @@
                     const date = new Date(d + 'T12:00:00Z'); // Add time to ensure UTC interpretation
                     
                     if (isNaN(date.getTime())) {
-                        console.error(`Invalid date: ${d}`);
+                        logClient('warn', 'dashboard.weekly', 'Invalid date encountered', { date: d });
                         return;
                     }
                     
@@ -3967,7 +4238,10 @@
                     weeklyData[mondayStr].net += dayRollup[d].net;
                     weeklyData[mondayStr].gym += dayRollup[d].gym;
                 } catch (e) {
-                    console.error(`Error processing date ${d}:`, e);
+                    logClient('warn', 'dashboard.weekly', 'Error processing weekly date bucket', {
+                        date: d,
+                        error: e
+                    });
                 }
             });
             
